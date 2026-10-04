@@ -21,11 +21,7 @@ Navigateur ──▶ Angular :4200 ──/api (proxy)──▶ Spring Boot :8080
 ```
 SentiShop/
 ├── README.md
-├── start.cmd                  ▶ lance backend + frontend et ouvre le navigateur
-├── start-backend.cmd          ▶ backend seul  (http://localhost:8080)
-├── start-frontend.cmd         ▶ frontend seul (http://localhost:4200)
-├── run-tests.cmd              ▶ tous les tests (back + front)
-├── samples/                   CSV d'exemple (format standard + export Excel FR)
+├── samples/                   CSV de démonstration pour l'import (FR / EN / AR, export Excel FR)
 │
 ├── frontend/                  ── application Angular
 │   ├── package.json · angular.json · tsconfig*.json
@@ -49,7 +45,8 @@ SentiShop/
 │           └── shared/            sentiment-badge
 │
 └── sentiment-analysis/        ── API Spring Boot
-    ├── pom.xml · mvnw · .env.example
+    ├── pom.xml · mvnw
+    ├── .env.example           modèle du fichier .env (HF_TOKEN=), à copier en .env
     └── src/
         ├── main/java/com/shop/sentiment_analysis/
         │   ├── controller/    ReviewController, DashboardController
@@ -74,19 +71,26 @@ SentiShop/
 
 ## Démarrage
 
-1. **Token** (une seule fois) : copier `sentiment-analysis\.env.example` en `sentiment-analysis\.env`
-   et écrire `HF_TOKEN=hf_xxxxxxxx`.
-2. Double-cliquer **`start.cmd`** : deux fenêtres s'ouvrent (backend, frontend), puis le navigateur
-   sur **http://localhost:4200**. Garder les deux fenêtres ouvertes.
+**1. Token** (une seule fois) : copier `sentiment-analysis/.env.example` en `sentiment-analysis/.env`,
+puis écrire votre token : `HF_TOKEN=hf_xxxxxxxx`. Ce fichier n'est jamais envoyé sur GitHub.
 
-Swagger (documentation de l'API) : http://localhost:8080/swagger-ui.html
-
-En ligne de commande :
+**2. Backend** (terminal 1) → http://localhost:8080 · Swagger : http://localhost:8080/swagger-ui.html
 
 ```bash
-cd sentiment-analysis && ./mvnw spring-boot:run     # backend
-cd frontend && npm install && npm start             # frontend
+cd sentiment-analysis
+./mvnw spring-boot:run          # Windows (cmd / PowerShell) : .\mvnw spring-boot:run
 ```
+
+**3. Frontend** (terminal 2) → **http://localhost:4200**
+
+```bash
+cd frontend
+npm install                     # la première fois seulement
+npm start
+```
+
+Garder les deux terminaux ouverts. Le front appelle `/api/...`, redirigé vers le backend par
+`frontend/src/proxy.conf.json`.
 
 Dans IntelliJ : SDK = Java 21, lancer `SentimentAnalysisApplication` avec comme
 *working directory* le dossier `sentiment-analysis` (pour que le `.env` soit trouvé).
@@ -127,7 +131,12 @@ les analyses existantes sont recopiées dans le cache. Aucune donnée n'est perd
 
 ## Tests
 
-Double-cliquer **`run-tests.cmd`**. Aucun test n'appelle la vraie API (aucun crédit consommé).
+```bash
+cd sentiment-analysis && ./mvnw test                         # backend
+cd frontend && npx ng test --watch=false --browsers=ChromeHeadless   # frontend
+```
+
+Aucun test n'appelle la vraie API (aucun crédit consommé).
 
 | Côté | Outils | Ce qui est vérifié |
 |---|---|---|

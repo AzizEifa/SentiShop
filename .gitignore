@@ -8,5 +8,4 @@
 Thumbs.db
 .idea/
 *.iml
-.vscode/*
-!.vscode/extensions.json
+.vscode/
