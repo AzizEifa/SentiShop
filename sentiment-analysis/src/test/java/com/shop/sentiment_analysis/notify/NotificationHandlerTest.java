@@ -53,7 +53,7 @@ class NotificationHandlerTest {
         WebSocketSession admin = session("a");
         handler.handleTextMessage(admin, auth("admin-token"));
 
-        handler.broadcast(new ReviewEvent("review.created", 1L, "Top", "Casque", null, .9, 5, "Sara", Instant.now()));
+        handler.broadcast(ReviewEvent.deleted(1L));
 
         verify(admin).sendMessage(new TextMessage("{\"type\":\"ready\"}"));
         verify(admin, times(2)).sendMessage(any());
@@ -67,7 +67,7 @@ class NotificationHandlerTest {
         handler.handleTextMessage(client, auth("client-token"));
         handler.handleTextMessage(anonymous, auth("bad-token"));
 
-        handler.broadcast(new ReviewEvent("review.created", 1L, "Top", "Casque", null, .9, 5, "Sara", Instant.now()));
+        handler.broadcast(ReviewEvent.deleted(1L));
 
         verify(client).close(any(CloseStatus.class));
         verify(anonymous).close(any(CloseStatus.class));

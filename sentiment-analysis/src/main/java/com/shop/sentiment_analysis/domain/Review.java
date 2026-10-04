@@ -1,12 +1,17 @@
 package com.shop.sentiment_analysis.domain;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.shop.sentiment_analysis.storage.FileStorageService;
+import com.shop.sentiment_analysis.storage.StringListConverter;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "review", indexes = @Index(name = "idx_review_text_hash", columnList = "text_hash"))
@@ -46,5 +51,20 @@ public class Review {
     /** Note de 1 à 5 étoiles donnée par le client (null pour un avis importé). */
     private Integer rating;
 
+    /** Photos jointes par le client (noms de fichiers dans uploads/reviews). */
+    @JsonIgnore
+    @Convert(converter = StringListConverter.class)
+    @Column(name = "images", length = 1000)
+    private List<String> images = new ArrayList<>();
+
     private Instant createdAt = Instant.now();
+
+    /** Dernière modification par son auteur (null si jamais modifié). */
+    private Instant updatedAt;
+
+    /** URLs publiques des photos, pour l'API. */
+    @JsonProperty("imageUrls")
+    public List<String> getImageUrls() {
+        return images == null ? List.of() : images.stream().map(n -> FileStorageService.url(FileStorageService.Folder.REVIEWS, n)).toList();
+    }
 }

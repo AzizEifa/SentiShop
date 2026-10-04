@@ -1,6 +1,8 @@
 package com.shop.sentiment_analysis.auth;
 
+import com.shop.sentiment_analysis.me.AdminReviewController;
 import com.shop.sentiment_analysis.me.MeController;
+import com.shop.sentiment_analysis.product.ProductController;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -14,11 +16,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Erreurs des modules compte et espace client, en français et champ par champ.
+ * Erreurs des modules compte, profil, espace client, produits et modération, en français et champ par champ.
  * Limité à ces contrôleurs pour ne pas changer les messages existants du reste de l'API.
  */
 @Order(Ordered.HIGHEST_PRECEDENCE)
-@RestControllerAdvice(assignableTypes = {AuthController.class, MeController.class, AdminUserController.class})
+@RestControllerAdvice(assignableTypes = {AuthController.class, AccountController.class, MeController.class,
+        AdminUserController.class, AdminReviewController.class, ProductController.class})
 public class AuthExceptionHandler {
 
     @ExceptionHandler(ApiException.class)

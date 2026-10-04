@@ -28,6 +28,10 @@ public class AppUser {
     @Column(nullable = false, length = 10)
     private Role role;
 
+    /** Photo de profil dans uploads/avatars (null : initiales). */
+    @Column(name = "avatar_name", length = 60)
+    private String avatarName;
+
     private Instant createdAt = Instant.now();
 
     public AppUser(String email, String fullName, String passwordHash, Role role) {

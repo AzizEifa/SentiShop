@@ -31,9 +31,11 @@ import java.nio.charset.StandardCharsets;
 /**
  * Droits d'accès :
  *  - public       : inscription, connexion, santé de l'API, documentation Swagger, WebSocket (authentifié au 1er message)
- *  - connecté     : /api/auth/me, /api/products
+ *  - public       : images envoyées (/uploads/**, noms aléatoires)
+ *  - connecté     : /api/auth/me, /api/account/** (mon profil), lecture du catalogue /api/products
  *  - CLIENT       : /api/me/** (déposer et consulter ses propres avis)
- *  - ADMIN        : tout le reste de /api/** (dashboard, analyse, import, export, comparaison, utilisateurs)
+ *  - ADMIN        : tout le reste de /api/** (dashboard, analyse, import, export, comparaison,
+ *                   gestion des produits, des avis et des utilisateurs : /api/admin/**)
  * Sans session côté serveur : chaque requête porte un jeton JWT (en-tête Authorization: Bearer …).
  */
 @Configuration
@@ -59,7 +61,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/register", "/api/auth/login").permitAll()
                         .requestMatchers("/actuator/health", "/ws/**", "/h2-console/**",
                                 "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**").permitAll()
-                        .requestMatchers("/api/auth/me", "/api/products").authenticated()
+                        // images (noms aléatoires impossibles à deviner), affichées par <img> sans en-tête Authorization
+                        .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
+                        .requestMatchers("/api/auth/me", "/api/account/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/products").authenticated()
                         .requestMatchers("/api/me/**").hasRole(Role.CLIENT.name())
                         .requestMatchers("/api/**").hasRole(Role.ADMIN.name())
                         .anyRequest().denyAll())

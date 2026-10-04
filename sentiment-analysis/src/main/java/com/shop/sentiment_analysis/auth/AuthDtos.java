@@ -5,6 +5,8 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import com.shop.sentiment_analysis.storage.FileStorageService;
+
 import java.time.Instant;
 
 public final class AuthDtos {
@@ -27,11 +29,30 @@ public final class AuthDtos {
             @NotBlank(message = "L'email est requis") String email,
             @NotBlank(message = "Le mot de passe est requis") String password) {}
 
-    public record UserDto(Long id, String email, String fullName, Role role, Instant createdAt) {
+    public record UserDto(Long id, String email, String fullName, Role role, String avatarUrl, Instant createdAt) {
         public static UserDto of(AppUser u) {
-            return new UserDto(u.getId(), u.getEmail(), u.getFullName(), u.getRole(), u.getCreatedAt());
+            return new UserDto(u.getId(), u.getEmail(), u.getFullName(), u.getRole(),
+                    FileStorageService.url(FileStorageService.Folder.AVATARS, u.getAvatarName()), u.getCreatedAt());
         }
     }
+
+    public record ProfileRequest(
+            @NotBlank(message = "Le nom est requis")
+            @Size(min = 2, max = 120, message = "Le nom doit contenir entre 2 et 120 caractères")
+            String fullName,
+            @NotBlank(message = "L'email est requis")
+            @Email(message = "Adresse email invalide")
+            @Size(max = 160, message = "Email trop long")
+            String email) {}
+
+    public record PasswordRequest(
+            @NotBlank(message = "Saisissez votre mot de passe actuel") String currentPassword,
+            @NotBlank(message = "Le nouveau mot de passe est requis")
+            @Size(min = 8, max = 72, message = "Le mot de passe doit contenir au moins 8 caractères")
+            @Pattern(regexp = "^(?=.*[A-Za-z])(?=.*\\d).+$", message = "Le mot de passe doit contenir au moins une lettre et un chiffre")
+            String newPassword) {}
+
+    public record RoleRequest(@jakarta.validation.constraints.NotNull(message = "Rôle requis") Role role) {}
 
     /** Réponse de connexion / inscription : le jeton à envoyer dans l'en-tête Authorization. */
     public record AuthResponse(String token, Instant expiresAt, UserDto user) {}

@@ -42,9 +42,14 @@ class SecurityIntegrationTest {
     @MockBean HuggingFaceClient huggingFace;
     @SpyBean NotificationHandler notifications;
 
+    @Autowired com.shop.sentiment_analysis.product.ProductRepository catalog;
+
     @BeforeEach
     void ia() {
         when(huggingFace.classify(anyString())).thenReturn(new Dtos.ClassResult(SentimentLabel.POSITIVE, 0.9));
+        for (String p : new String[]{"Casque Bluetooth", "Casque"}) {
+            if (!catalog.existsByNameIgnoreCase(p)) catalog.save(new com.shop.sentiment_analysis.product.Product(p));
+        }
     }
 
     // ---------- outils ----------
@@ -52,6 +57,14 @@ class SecurityIntegrationTest {
 
     private ResultActions post(String url, String token, Object body) throws Exception {
         var req = MockMvcRequestBuilders.post(url).contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(body));
+        if (token != null) req.header("Authorization", "Bearer " + token);
+        return mvc.perform(req);
+    }
+
+    /** Dépôt d'avis client : multipart, partie "review" en JSON. */
+    private ResultActions submit(String token, Submit body) throws Exception {
+        var part = new org.springframework.mock.web.MockMultipartFile("review", "", "application/json", json.writeValueAsBytes(body));
+        var req = MockMvcRequestBuilders.multipart("/api/me/reviews").file(part);
         if (token != null) req.header("Authorization", "Bearer " + token);
         return mvc.perform(req);
     }
@@ -160,7 +173,7 @@ class SecurityIntegrationTest {
         String admin = adminToken();
         get("/api/dashboard/stats", admin).andExpect(status().isOk());
         get("/api/admin/users", admin).andExpect(status().isOk());
-        post("/api/me/reviews", admin, new Submit("Casque", 5, "Excellent produit, je recommande")).andExpect(status().isForbidden());
+        submit(admin, new Submit("Casque", 5, "Excellent produit, je recommande")).andExpect(status().isForbidden());
     }
 
     @Test
@@ -175,7 +188,7 @@ class SecurityIntegrationTest {
         String email = uniqueEmail();
         String client = registerClient(email);
 
-        post("/api/me/reviews", client, new Submit("Casque Bluetooth", 5, "Son excellent, livraison rapide !"))
+        submit(client, new Submit("Casque Bluetooth", 5, "Son excellent, livraison rapide !"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.product").value("Casque Bluetooth"))
                 .andExpect(jsonPath("$.rating").value(5))
@@ -198,7 +211,7 @@ class SecurityIntegrationTest {
 
     @Test
     void avisClient_invalide_400() throws Exception {
-        post("/api/me/reviews", registerClient(uniqueEmail()), new Submit("", 6, "court"))
+        submit(registerClient(uniqueEmail()), new Submit("", 6, "court"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors.rating").value("La note va de 1 à 5 étoiles"))
                 .andExpect(jsonPath("$.errors.product").exists())
@@ -209,7 +222,7 @@ class SecurityIntegrationTest {
     void iaIndisponible_messageAdapteAuClient_etAucuneNotification() throws Exception {
         when(huggingFace.classify(anyString())).thenThrow(new HfUnavailableException("Quota Hugging Face dépassé", 429));
         clearInvocations(notifications);
-        post("/api/me/reviews", registerClient(uniqueEmail()), new Submit("Casque", 4, "Très bon rapport qualité prix"))
+        submit(registerClient(uniqueEmail()), new Submit("Casque", 4, "Très bon rapport qualité prix"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.detail").value("Votre avis n'a pas pu être enregistré pour le moment. Réessayez dans quelques instants."));
         verify(notifications, never()).broadcast(any());
