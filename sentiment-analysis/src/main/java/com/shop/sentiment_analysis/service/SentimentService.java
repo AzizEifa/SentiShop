@@ -6,24 +6,31 @@ import com.shop.sentiment_analysis.cache.ReviewHasher;
 import com.shop.sentiment_analysis.client.HuggingFaceClient;
 import com.shop.sentiment_analysis.config.HuggingFaceProperties;
 import com.shop.sentiment_analysis.domain.Review;
+import com.shop.sentiment_analysis.domain.ReviewAnalysis;
 import com.shop.sentiment_analysis.dto.Dtos;
+import com.shop.sentiment_analysis.repository.ReviewAnalysisRepository;
 import com.shop.sentiment_analysis.repository.ReviewRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
 /**
- * Cache à 2 niveaux : Caffeine (mémoire) puis base de données.
+ * Cache à 2 niveaux : Caffeine (mémoire) puis table review_analysis.
  * L'API Hugging Face n'est appelée qu'en cas d'échec des deux.
+ * Chaque avis reçu est ensuite enregistré dans review (doublons compris), pour des statistiques justes.
  * Pas de @Transactional : on ne garde pas de connexion BDD ouverte pendant l'appel HTTP.
  */
 @Service
 @RequiredArgsConstructor
 public class SentimentService {
 
+    private static final int MAX_PRODUCT = 120;
+
     private final HuggingFaceClient client;
     private final ReviewRepository repo;
+    private final ReviewAnalysisRepository analyses;
     private final HuggingFaceProperties props;
 
     private final Cache<String, Dtos.ClassResult> memory = Caffeine.newBuilder()
@@ -35,33 +42,51 @@ public class SentimentService {
         String text = ReviewHasher.normalize(rawText);
         String hash = ReviewHasher.hash(text, props.model());
 
+        boolean cached = true;
         // 1. mémoire
-        var hit = memory.getIfPresent(hash);
-        if (hit != null) return new Dtos.AnalyzeResponse(hit.label(), hit.score(), true);
-
-        // 2. base de données
-        var stored = repo.findByTextHash(hash);
-        if (stored.isPresent()) {
-            var r = stored.get();
-            memory.put(hash, new Dtos.ClassResult(r.getLabel(), r.getScore()));
-            return new Dtos.AnalyzeResponse(r.getLabel(), r.getScore(), true);
+        var res = memory.getIfPresent(hash);
+        if (res == null) {
+            // 2. base de données (cache persistant)
+            res = analyses.findByTextHash(hash)
+                    .map(a -> new Dtos.ClassResult(a.getLabel(), a.getScore()))
+                    .orElse(null);
+            if (res == null) {
+                // 3. appel API
+                res = client.classify(text);
+                saveAnalysis(hash, res);
+                cached = false;
+            }
+            memory.put(hash, res);
         }
 
-        // 3. appel API
-        var res = client.classify(text);
+        // 4. l'avis lui-même est toujours enregistré : 30 clients qui écrivent « Très bien » = 30 avis
         Review r = new Review();
         r.setText(text);
         r.setTextHash(hash);
-        r.setProduct(blankToNull(product));
+        r.setProduct(cleanProduct(product));
         r.setLabel(res.label());
         r.setScore(res.score());
         r.setModel(props.model());
         repo.save(r);
-        memory.put(hash, res);
-        return new Dtos.AnalyzeResponse(res.label(), res.score(), false);
+        return new Dtos.AnalyzeResponse(res.label(), res.score(), cached);
     }
 
-    private static String blankToNull(String s) {
-        return (s == null || s.isBlank()) ? null : s.strip();
+    private void saveAnalysis(String hash, Dtos.ClassResult res) {
+        ReviewAnalysis a = new ReviewAnalysis();
+        a.setTextHash(hash);
+        a.setLabel(res.label());
+        a.setScore(res.score());
+        a.setModel(props.model());
+        try {
+            analyses.save(a);
+        } catch (DataIntegrityViolationException e) {
+            // même texte analysé en parallèle par une autre requête : l'analyse est déjà en cache
+        }
+    }
+
+    private static String cleanProduct(String s) {
+        if (s == null || s.isBlank()) return null;
+        String p = s.strip();
+        return p.length() > MAX_PRODUCT ? p.substring(0, MAX_PRODUCT) : p; // évite l'échec SQL varchar(120)
     }
 }

@@ -9,11 +9,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
-import java.util.Optional;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
-
-    Optional<Review> findByTextHash(String hash);
 
     /** product = "" signifie « tous les produits » (y compris les avis sans produit). */
     @Query("select r.label, count(r) from Review r where (:product = '' or r.product = :product) group by r.label")

@@ -1,6 +1,5 @@
 package com.shop.sentiment_analysis.domain;
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -8,23 +7,19 @@ import lombok.Setter;
 
 import java.time.Instant;
 
+/**
+ * Cache persistant des analyses : un texte normalisé (+ modèle) = une seule ligne, un seul appel API.
+ * Les avis clients eux-mêmes sont dans la table review (une ligne par avis, doublons compris).
+ */
 @Entity
-@Table(name = "review", indexes = @Index(name = "idx_review_text_hash", columnList = "text_hash"))
+@Table(name = "review_analysis")
 @Getter @Setter @NoArgsConstructor
-public class Review {
+public class ReviewAnalysis {
     @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(columnDefinition = "text", nullable = false)
-    private String text;
-
-    /** Pas unique : deux clients peuvent écrire le même avis. Le cache est dans ReviewAnalysis. */
-    @JsonIgnore
-    @Column(name = "text_hash", length = 64, nullable = false)
+    @Column(name = "text_hash", length = 64, nullable = false, unique = true)
     private String textHash;
-
-    @Column(length = 120)
-    private String product;
 
     @Enumerated(EnumType.STRING)
     @Column(length = 10, nullable = false)
@@ -32,7 +27,6 @@ public class Review {
 
     private double score;
 
-    @JsonIgnore
     private String model;
 
     private Instant createdAt = Instant.now();
