@@ -1,8 +1,10 @@
-import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js';
-import { catchError, forkJoin, map, of } from 'rxjs';
+import { catchError, debounceTime, forkJoin, map, of } from 'rxjs';
+import { NotificationService } from '../../../core/notifications/notification.service';
 import { DashboardApi } from '../../../core/api/dashboard-api.service';
 import { ReviewApi } from '../../../core/api/review-api.service';
 import { DashboardStats, Review, SummaryResponse } from '../../../core/models/models';
@@ -22,7 +24,7 @@ export interface ProductRow { product: string; stats: DashboardStats; }
   template: `
     <header class="page-header">
       <div>
-        <h1>Vue d'ensemble</h1>
+        <h1>Vue d'ensemble @if (live.connected()) { <span class="live-pill" title="Les nouveaux avis clients mettent ce tableau de bord à jour automatiquement"><span class="pulse"></span>En direct</span> }</h1>
         <p class="subtitle">{{ product() ? 'Produit : ' + product() : 'Ce que vos clients pensent de l’ensemble de vos produits' }}</p>
       </div>
       <div class="page-actions">
@@ -31,7 +33,7 @@ export interface ProductRow { product: string; stats: DashboardStats; }
           <option value="">Tous les produits</option>
           @for (item of products(); track item) { <option [value]="item">{{ item }}</option> }
         </select>
-        <a class="btn btn-secondary" [href]="exportUrl()" download="avis.csv"><span class="icon">download</span>Exporter</a>
+        <button class="btn btn-secondary" type="button" (click)="exportCsv()" [disabled]="exporting()"><span class="icon">{{ exporting() ? 'hourglass_top' : 'download' }}</span>Exporter</button>
         <a class="btn btn-primary" routerLink="/import"><span class="icon">upload</span>Importer des avis</a>
       </div>
     </header>
@@ -169,6 +171,10 @@ export interface ProductRow { product: string; stats: DashboardStats; }
   styles: [`
     :host { display: block; min-width: 0; }
     .product-select { width: 220px; }
+    h1 { display: flex; align-items: center; gap: 12px; }
+    .live-pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; color: var(--pos-text); background: var(--pos-soft); border-radius: 99px; font-size: 12px; font-weight: 600; letter-spacing: 0; }
+    .pulse { width: 7px; height: 7px; background: var(--pos); border-radius: 50%; animation: pulse 1.8s infinite; }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(26, 154, 108, .45); } 70% { box-shadow: 0 0 0 7px rgba(26, 154, 108, 0); } 100% { box-shadow: 0 0 0 0 rgba(26, 154, 108, 0); } }
     .verdict { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding: 18px 22px; border-left: 4px solid var(--neu); }
     .verdict.pos { border-left-color: var(--pos); } .verdict.neg { border-left-color: var(--neg); }
     .verdict-icon { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 12px; color: var(--neu-text); background: var(--neu-soft); }
@@ -225,6 +231,9 @@ export interface ProductRow { product: string; stats: DashboardStats; }
 export class DashboardPageComponent implements OnInit {
   private readonly api = inject(DashboardApi);
   private readonly reviews = inject(ReviewApi);
+  private readonly destroyRef = inject(DestroyRef);
+  readonly live = inject(NotificationService);
+  readonly exporting = signal(false);
   readonly products = signal<string[]>([]);
   readonly productRows = signal<ProductRow[]>([]);
   readonly product = signal('');
@@ -254,10 +263,23 @@ export class DashboardPageComponent implements OnInit {
     plugins: { legend: { display: false }, tooltip: { padding: 10, cornerRadius: 8, displayColors: true } },
   };
 
-  ngOnInit() { this.refresh(); }
+  ngOnInit() {
+    this.refresh();
+    // un nouvel avis client met à jour les chiffres sans recharger la page (regroupé si plusieurs arrivent)
+    this.live.reviews$.pipe(debounceTime(800), takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refresh(true));
+  }
 
-  refresh() {
-    this.loadStats();
+  exportCsv() {
+    this.exporting.set(true);
+    this.reviews.downloadCsv(this.product()).subscribe({
+      next: () => this.exporting.set(false),
+      error: () => this.exporting.set(false),
+    });
+  }
+
+  /** silent : rafraîchissement en direct, sans repasser par l'écran de chargement. */
+  refresh(silent = false) {
+    this.loadStats(silent);
     this.api.products().subscribe({
       next: (items) => { this.products.set(items); this.loadProductRows(items); },
       error: () => {},
@@ -278,8 +300,8 @@ export class DashboardPageComponent implements OnInit {
     });
   }
 
-  private loadStats() {
-    this.stats.set(null);
+  private loadStats(silent = false) {
+    if (!silent) this.stats.set(null);
     this.loadError.set(false);
     this.api.stats(this.product()).subscribe({
       next: (result) => this.stats.set(result),

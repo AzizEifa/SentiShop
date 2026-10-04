@@ -2,7 +2,7 @@ import { HttpClient, HttpContext } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { catchError, map, of, startWith, switchMap, timer } from 'rxjs';
-import { SILENT_ERRORS } from '../interceptors/error.interceptor';
+import { SILENT_ERRORS } from '../interceptors/silent-errors';
 
 export type ApiStatus = 'checking' | 'online' | 'offline';
 

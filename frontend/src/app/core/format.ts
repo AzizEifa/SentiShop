@@ -53,3 +53,11 @@ export function verdictOf(s: DashboardStats): Verdict {
   }
   return { tone: 'neu', title: 'Avis partagés', message: `${s.positivePct}% de positifs pour ${s.negativePct}% de négatifs : des points restent à améliorer.` };
 }
+
+/** Initiales pour les avatars : « Sara Benali » → « SB ». */
+export function initials(name: string | null | undefined): string {
+  const parts = (name ?? '').trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? '') + (parts.length > 1 ? parts[parts.length - 1][0] : '')).toUpperCase() || '?';
+}
+
+export const RATING_LABEL = ['', 'Très décevant', 'Décevant', 'Correct', 'Bien', 'Excellent'];

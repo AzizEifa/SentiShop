@@ -13,8 +13,32 @@ l'application dit en un coup d'œil si les clients sont satisfaits.
 Navigateur ──▶ Angular :4200 ──/api (proxy)──▶ Spring Boot :8080 ──▶ Hugging Face
                                                   │  └─ le token HF est ici (.env), jamais dans le navigateur
                                                   ├─ cache : Caffeine (mémoire) puis table review_analysis
-                                                  └─ avis clients : table review (une ligne par avis)
+                                                  ├─ avis clients : table review (une ligne par avis)
+                                                  ├─ comptes : table app_user (BCrypt) + jetons JWT
+                                                  └─ WebSocket /ws/notifications → admins connectés
 ```
+
+## Comptes et droits
+
+| Rôle | Comment l'obtenir | Ce qu'il peut faire |
+|---|---|---|
+| **Client** | Inscription libre sur `/register` | Écrire un avis (produit, note ★, texte) et consulter **ses** avis dans `/espace`. Le sentiment détecté reste interne à la boutique. |
+| **Administrateur** | Créé au démarrage (impossible par l'inscription) | Tout le back-office : tableau de bord, avis, analyse, import, export, comparaison, utilisateurs. Reçoit **en temps réel** chaque avis déposé par un client. |
+
+Les droits sont appliqués **par le backend** (Spring Security, jetons JWT signés) et pas seulement masqués dans
+l'interface : un client qui appelle une route admin reçoit `403`, une requête sans jeton `401`.
+
+**Comptes créés au premier démarrage** (modifiables dans `.env`, cf. `.env.example`) :
+
+| Rôle | Email | Mot de passe |
+|---|---|---|
+| Administrateur | `admin@sentishop.local` | `Admin123!` |
+| Client de démonstration | `client@sentishop.local` | `Client123!` |
+
+**Notifications temps réel** : quand un client publie un avis, les administrateurs connectés reçoivent
+une alerte (avec la note et le sentiment), la cloche affiche le nombre de non-lus et le tableau de bord
+se met à jour sans recharger. Le jeton est envoyé dans le premier message WebSocket, pas dans l'URL ;
+seuls les jetons ADMIN sont abonnés. Reconnexion automatique en cas de coupure.
 
 ## Structure du projet
 
@@ -32,24 +56,33 @@ SentiShop/
 │       └── app/
 │           ├── app.component.ts · app.config.ts · app.routes.ts
 │           ├── core/
-│           │   ├── api/           review-api, dashboard-api (appels REST)
+│           │   ├── api/           appels REST (avis, dashboard, espace client, administration)
+│           │   ├── auth/          session JWT, intercepteur, gardes par rôle
+│           │   ├── notifications/ WebSocket temps réel (alertes, compteur, reconnexion)
 │           │   ├── csv/           normalisation du CSV avant import
 │           │   ├── interceptors/  erreurs HTTP → message à l'utilisateur
 │           │   ├── models/        types partagés (Review, DashboardStats…)
 │           │   └── format.ts      dates relatives, verdict de satisfaction, score net
+│           ├── layouts/           back-office admin · espace client
 │           ├── features/          une page par fonctionnalité
+│           │   ├── auth/          connexion, inscription
+│           │   ├── client/        espace client : écrire un avis, mes avis
+│           │   ├── users/         administration des comptes
 │           │   ├── dashboard/     F3 · B1 · B2   vue d'ensemble, camembert, résumé, export
 │           │   ├── analyze/       F1 · F4        analyser un avis
 │           │   ├── import/        F2             importer un CSV
 │           │   ├── reviews/       B2             liste filtrable + export
 │           │   └── compare/       B3             multilingue vs anglais seul
-│           └── shared/            sentiment-badge
+│           └── shared/            badge de sentiment, étoiles, cloche, alertes, menu utilisateur
 │
 └── sentiment-analysis/        ── API Spring Boot
     ├── pom.xml · mvnw
     ├── .env.example           modèle du fichier .env (HF_TOKEN=), à copier en .env
     └── src/
         ├── main/java/com/shop/sentiment_analysis/
+        │   ├── auth/          comptes, JWT, SecurityConfig (droits), inscription / connexion
+        │   ├── me/            espace client : déposer et lister ses avis
+        │   ├── notify/        WebSocket des notifications temps réel
         │   ├── controller/    ReviewController, DashboardController
         │   ├── service/       SentimentService (cache), CsvImportService, DashboardService, ExportService
         │   ├── client/        HuggingFaceClient (équivalent de api_client.py)
@@ -156,13 +189,15 @@ Aucun test n'appelle la vraie API (aucun crédit consommé).
 
 | Côté | Outils | Ce qui est vérifié |
 |---|---|---|
-| Back (25) | JUnit 5, Mockito, MockWebServer | 1er appel → HF appelé ; **2e appel identique → HF non appelé** (`cached=true`) ; avis identiques comptés séparément ; erreurs 401 / 429 / 503 (retry) ; résumé BART ; comparaison B3 ; migration |
-| Front (45) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 ; verdict et score net ; historique d'analyse ; étapes de l'import ; état de l'API |
+| Back (42) | JUnit 5, Mockito, MockWebServer, Spring Security Test | 1er appel → HF appelé ; **2e appel identique → HF non appelé** (`cached=true`) ; avis identiques comptés séparément ; erreurs 401 / 429 / 503 (retry) ; résumé BART ; comparaison B3 ; migration ; **droits par rôle** (401 / 403), inscription, connexion, avis client, notification WebSocket |
+| Front (74) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 ; verdict et score net ; historique d'analyse ; étapes de l'import ; état de l'API ; session et gardes par rôle ; connexion / inscription ; dépôt d'avis ; WebSocket (reconnexion) |
 
 ## Sécurité
 
 - Le token n'existe que dans `sentiment-analysis/.env`, ignoré par Git (`.env.example` est vide).
 - Le navigateur ne parle qu'au backend : le token n'est jamais visible avec F12.
+- Mots de passe stockés chiffrés (BCrypt) ; message d'erreur de connexion identique que l'email existe ou non.
+- Jetons de connexion signés (HS256), valables 8 h ; secret `JWT_SECRET` à définir dans `.env` hors développement.
 - Ne jamais coller le token dans un prompt d'assistant IA.
 
 ## Limites connues

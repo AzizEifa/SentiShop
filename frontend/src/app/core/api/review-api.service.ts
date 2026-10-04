@@ -1,5 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
+import { tap } from 'rxjs';
 import { AnalyzeResponse, CompareResponse, ImportReport, Page, Review, Sentiment } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
@@ -32,9 +33,28 @@ export class ReviewApi {
     return this.http.get<Page<Review>>('/api/reviews', { params });
   }
 
-  /** URL de téléchargement du CSV (le navigateur suit le lien, le proxy le redirige vers Spring). */
+  /** URL de l'export CSV (filtré par produit si besoin). */
   exportUrl(product = '') {
     const p = product.trim();
     return '/api/reviews/export' + (p ? `?product=${encodeURIComponent(p)}` : '');
   }
+
+  /**
+   * Télécharge l'export CSV. Passe par HttpClient pour envoyer le jeton
+   * (un simple lien <a href> ne porte pas l'en-tête Authorization).
+   */
+  downloadCsv(product = '') {
+    return this.http.get(this.exportUrl(product), { responseType: 'blob' }).pipe(
+      tap((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = product.trim() ? `avis-${slug(product)}.csv` : 'avis.csv';
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      })
+    );
+  }
 }
+
+const slug = (s: string) => s.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');

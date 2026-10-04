@@ -7,6 +7,8 @@ import { ReviewApi } from '../../../core/api/review-api.service';
 import { Review, Sentiment } from '../../../core/models/models';
 import { SENTIMENT_CLASS, formatNumber, formatRelative } from '../../../core/format';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
+import { StarsComponent } from '../../../shared/stars/stars.component';
+import { NotificationService } from '../../../core/notifications/notification.service';
 
 const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
   { value: '', label: 'Tous' },
@@ -18,7 +20,7 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
 @Component({
   selector: 'app-reviews-page',
   standalone: true,
-  imports: [RouterLink, PercentPipe, SentimentBadgeComponent],
+  imports: [RouterLink, PercentPipe, SentimentBadgeComponent, StarsComponent],
   template: `
     <header class="page-header">
       <div>
@@ -26,7 +28,7 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
         <p class="subtitle">{{ fmt(total()) }} avis {{ label() || product() ? 'correspondent à vos filtres' : 'analysés' }}</p>
       </div>
       <div class="page-actions">
-        <a class="btn btn-secondary" [href]="exportUrl()" download="avis.csv"><span class="icon">download</span>Exporter la sélection</a>
+        <button class="btn btn-secondary" type="button" (click)="exportCsv()" [disabled]="exporting()"><span class="icon">{{ exporting() ? 'hourglass_top' : 'download' }}</span>Exporter la sélection</button>
       </div>
     </header>
 
@@ -48,17 +50,21 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
 
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Avis</th><th>Produit</th><th>Sentiment</th><th class="conf-col">Confiance</th><th>Date</th></tr></thead>
+          <thead><tr><th>Avis</th><th>Auteur</th><th>Produit</th><th>Sentiment</th><th class="conf-col">Confiance</th><th>Date</th></tr></thead>
           <tbody>
             @if (loading() && !rows().length) {
               @for (i of skeletonRows; track i) {
-                <tr><td><span class="skeleton" style="height: 14px; width: 90%"></span><span class="skeleton" style="height: 14px; width: 60%; margin-top: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 80px"></span></td><td><span class="skeleton" style="height: 22px; width: 76px; border-radius: 99px"></span></td><td><span class="skeleton" style="height: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 70px"></span></td></tr>
+                <tr><td><span class="skeleton" style="height: 14px; width: 90%"></span><span class="skeleton" style="height: 14px; width: 60%; margin-top: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 90px"></span></td><td><span class="skeleton" style="height: 14px; width: 80px"></span></td><td><span class="skeleton" style="height: 22px; width: 76px; border-radius: 99px"></span></td><td><span class="skeleton" style="height: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 70px"></span></td></tr>
               }
             } @else {
               @for (r of rows(); track r.id) {
-                <tr [class.dim]="loading()">
+                <tr [class.dim]="loading()" [class.fresh]="fresh().has(r.id)">
                   <td class="text-col">
                     <p class="review-text" dir="auto" [class.expanded]="expanded().has(r.id)" (click)="toggle(r.id)" [title]="expanded().has(r.id) ? 'Réduire' : 'Afficher tout le texte'">{{ r.text }}</p>
+                  </td>
+                  <td class="author">
+                    @if (r.authorName) { <span class="author-name">{{ r.authorName }}</span>@if (r.rating) { <app-stars [value]="r.rating" /> } }
+                    @else { <span class="source"><span class="icon">upload_file</span>Import</span> }
                   </td>
                   <td>@if (r.product) { <span class="tag">{{ r.product }}</span> } @else { <span class="muted">—</span> }</td>
                   <td><app-sentiment-badge [label]="r.label" /></td>
@@ -66,7 +72,7 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
                   <td class="nowrap muted" [title]="r.createdAt ?? ''">{{ relative(r.createdAt) }}</td>
                 </tr>
               } @empty {
-                <tr><td colspan="5">
+                <tr><td colspan="6">
                   <div class="empty-state">
                     <div class="empty-icon"><span class="icon">{{ label() || product() ? 'filter_alt_off' : 'inbox' }}</span></div>
                     @if (label() || product()) {
@@ -108,6 +114,10 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
     .conf-col { width: 150px; }
     .conf { display: grid; grid-template-columns: 1fr 40px; align-items: center; gap: 10px; font-size: 13px; text-align: right; }
     tr.dim { opacity: .55; }
+    tr.fresh { animation: highlight 2.5s ease; }
+    @keyframes highlight { from { background: var(--brand-100); } to { background: transparent; } }
+    .author { white-space: nowrap; } .author-name { display: block; font-weight: 550; font-size: 13.5px; }
+    .source { display: inline-flex; align-items: center; gap: 4px; color: var(--text-4); font-size: 12.5px; } .source .icon { font-size: 16px; }
     .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; }
     .pager-controls { display: flex; align-items: center; gap: 8px; }
     .select-sm { width: 76px; height: 34px; }
@@ -120,6 +130,10 @@ export class ReviewsPageComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly live = inject(NotificationService);
+  readonly exporting = signal(false);
+  /** Avis arrivés en direct, surlignés brièvement. */
+  readonly fresh = signal(new Set<number>());
 
   readonly filters = FILTERS;
   readonly skeletonRows = [1, 2, 3, 4, 5];
@@ -148,9 +162,23 @@ export class ReviewsPageComponent implements OnInit {
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe((value) => { this.product.set(value.trim()); this.reload(); });
     this.fetch();
+    // nouvel avis client : la première page se met à jour toute seule
+    this.live.reviews$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (this.page() !== 0) return;
+      this.fresh.update((set) => new Set(set).add(e.id));
+      this.fetch();
+    });
   }
 
   exportUrl() { return this.api.exportUrl(this.product()); }
+
+  exportCsv() {
+    this.exporting.set(true);
+    this.api.downloadCsv(this.product()).subscribe({
+      next: () => this.exporting.set(false),
+      error: () => this.exporting.set(false),
+    });
+  }
 
   setLabel(value: Sentiment | '') { this.label.set(value); this.reload(); }
   setSize(n: number) { this.size.set(n); this.reload(); }
