@@ -3,7 +3,7 @@ rem Lance tous les tests : backend (JUnit + Mockito + MockWebServer) puis fronte
 cd /d "%~dp0"
 echo ===== Tests backend =====
 pushd sentiment-analysis
-call mvnw.cmd -B test || (popd & goto :error)
+call .\mvnw.cmd -B test || (popd & goto :error)
 popd
 echo ===== Tests frontend =====
 pushd frontend

@@ -7,5 +7,5 @@ if not exist .env (
   echo Copiez .env.example en .env et renseignez HF_TOKEN=hf_...
   echo.
 )
-call mvnw.cmd spring-boot:run
+call .\mvnw.cmd spring-boot:run
 pause
