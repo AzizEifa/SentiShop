@@ -38,7 +38,16 @@ public class SentimentService {
             .expireAfterWrite(Duration.ofDays(7))
             .build();
 
+    /** Résultat d'un enregistrement : l'avis sauvegardé et s'il a été servi par le cache. */
+    public record Submission(Review review, boolean cached) {}
+
     public Dtos.AnalyzeResponse analyze(String rawText, String product) {
+        var s = record(rawText, product, null, null, null);
+        return new Dtos.AnalyzeResponse(s.review().getLabel(), s.review().getScore(), s.cached());
+    }
+
+    /** Analyse (avec cache) puis enregistre l'avis, éventuellement rattaché au client qui l'a déposé. */
+    public Submission record(String rawText, String product, Long authorId, String authorName, Integer rating) {
         String text = ReviewHasher.normalize(rawText);
         String hash = ReviewHasher.hash(text, props.model());
 
@@ -67,8 +76,11 @@ public class SentimentService {
         r.setLabel(res.label());
         r.setScore(res.score());
         r.setModel(props.model());
+        r.setAuthorId(authorId);
+        r.setAuthorName(authorName);
+        r.setRating(rating);
         repo.save(r);
-        return new Dtos.AnalyzeResponse(res.label(), res.score(), cached);
+        return new Submission(r, cached);
     }
 
     private void saveAnalysis(String hash, Dtos.ClassResult res) {

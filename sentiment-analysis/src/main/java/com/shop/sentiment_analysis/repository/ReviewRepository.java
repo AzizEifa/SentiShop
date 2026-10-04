@@ -16,6 +16,13 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     @Query("select r.label, count(r) from Review r where (:product = '' or r.product = :product) group by r.label")
     List<Object[]> countByLabel(@Param("product") String product);
 
+    /** Avis déposés par un client donné (espace client). */
+    Page<Review> findByAuthorIdOrderByCreatedAtDesc(Long authorId, Pageable pageable);
+
+    /** Nombre d'avis par client : [authorId, count]. */
+    @Query("select r.authorId, count(r) from Review r where r.authorId is not null group by r.authorId")
+    List<Object[]> countByAuthor();
+
     @Query("select distinct r.product from Review r where r.product is not null order by r.product")
     List<String> findProducts();
 

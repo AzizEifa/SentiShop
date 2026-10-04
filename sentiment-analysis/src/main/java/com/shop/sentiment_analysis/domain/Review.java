@@ -35,5 +35,16 @@ public class Review {
     @JsonIgnore
     private String model;
 
+    /** Client qui a déposé l'avis (null pour un avis importé ou analysé par un admin). */
+    @JsonIgnore
+    @Column(name = "author_id")
+    private Long authorId;
+
+    @Column(name = "author_name", length = 120)
+    private String authorName;
+
+    /** Note de 1 à 5 étoiles donnée par le client (null pour un avis importé). */
+    private Integer rating;
+
     private Instant createdAt = Instant.now();
 }
