@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { AnalyzeResponse, CompareResponse, ImportReport, Page, Review, Sentiment } from '../../models/models';
+import { AnalyzeResponse, CompareResponse, ImportReport, Page, Review, Sentiment } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
 export class ReviewApi {

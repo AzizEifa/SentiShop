@@ -1,5 +1,5 @@
 import { Component, input } from '@angular/core';
-import { Sentiment } from '../../models/models';
+import { Sentiment } from '../../core/models/models';
 
 const TEXT: Record<Sentiment, string> = {
   POSITIVE: 'Positif',

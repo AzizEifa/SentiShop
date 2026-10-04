@@ -2,7 +2,7 @@
 
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { DashboardStats, SummaryResponse } from '../../models/models';
+import { DashboardStats, SummaryResponse } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardApi {

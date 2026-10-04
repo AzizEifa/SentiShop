@@ -4,7 +4,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { firstValueFrom } from 'rxjs';
 import { ReviewApi } from '../../../core/api/review-api.service';
 import { CsvRow, ParsedCsv, chunk, parseReviewsCsv, toBackendCsv } from '../../../core/csv/csv-normalizer';
-import { ImportReport } from '../../../models/models';
+import { ImportReport } from '../../../core/models/models';
 
 /** Taille max acceptée par le backend (spring.servlet.multipart.max-file-size). */
 const MAX_FILE_BYTES = 5 * 1024 * 1024;

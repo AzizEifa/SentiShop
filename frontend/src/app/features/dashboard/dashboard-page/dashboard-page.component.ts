@@ -4,7 +4,7 @@ import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js';
 import { DashboardApi } from '../../../core/api/dashboard-api.service';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { DashboardStats, SummaryResponse } from '../../../models/models';
+import { DashboardStats, SummaryResponse } from '../../../core/models/models';
 
 /** Mêmes couleurs que les badges et les barres : positif / neutre / négatif. */
 export const SENTIMENT_COLORS = ['#48a77b', '#d3a250', '#d3756c'];

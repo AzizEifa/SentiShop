@@ -4,7 +4,7 @@ import { PercentPipe } from '@angular/common';
 import { firstValueFrom } from 'rxjs';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { CompareResponse, Sentiment } from '../../../models/models';
+import { CompareResponse, Sentiment } from '../../../core/models/models';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
 
 export interface CompareCase {

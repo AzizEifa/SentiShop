@@ -7,7 +7,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { Review, Sentiment } from '../../../models/models';
+import { Review, Sentiment } from '../../../core/models/models';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
 
 @Component({

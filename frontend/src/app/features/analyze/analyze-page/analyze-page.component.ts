@@ -5,7 +5,7 @@ import { finalize } from 'rxjs';
 import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { AnalyzeResponse } from '../../../models/models';
+import { AnalyzeResponse } from '../../../core/models/models';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
 
 @Component({

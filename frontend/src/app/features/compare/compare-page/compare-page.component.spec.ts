@@ -2,7 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { CompareResponse, Sentiment } from '../../../models/models';
+import { CompareResponse, Sentiment } from '../../../core/models/models';
 import { ARABIC_CASES, ComparePageComponent } from './compare-page.component';
 
 const response = (multi: Sentiment, english: Sentiment): CompareResponse => ({
