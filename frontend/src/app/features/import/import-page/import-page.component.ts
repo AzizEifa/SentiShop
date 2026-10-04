@@ -1,90 +1,199 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { firstValueFrom } from 'rxjs';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { CsvRow, ParsedCsv, chunk, parseReviewsCsv, toBackendCsv } from '../../../core/csv/csv-normalizer';
+import { CsvRow, MAX_ROWS, ParsedCsv, chunk, parseReviewsCsv, toBackendCsv } from '../../../core/csv/csv-normalizer';
 import { ImportReport } from '../../../core/models/models';
+import { formatNumber } from '../../../core/format';
 
 /** Taille max acceptée par le backend (spring.servlet.multipart.max-file-size). */
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 /** Lignes envoyées par requête : permet une vraie barre de progression. */
 export const CHUNK_SIZE = 50;
+const PREVIEW_ROWS = 5;
+
+const SEPARATORS: Record<string, string> = { ',': 'virgule', ';': 'point-virgule', '\t': 'tabulation' };
 
 @Component({
   selector: 'app-import-page',
   standalone: true,
   imports: [RouterLink, MatProgressBarModule],
   template: `
-    <header class="page-heading">
-      <div><span class="eyebrow">AJOUTER DES DONNÉES</span><h1>Importez vos avis.</h1><p>Analysez plusieurs commentaires en une seule opération.</p></div>
+    <header class="page-header">
+      <div>
+        <h1>Importer des avis</h1>
+        <p class="subtitle">Analysez d’un coup tous les avis d’un fichier CSV (jusqu’à {{ fmt(maxRows) }} avis).</p>
+      </div>
+      <div class="page-actions">
+        <a class="btn btn-secondary" href="modele-avis.csv" download="modele-avis.csv"><span class="icon">description</span>Télécharger le modèle</a>
+      </div>
     </header>
 
-    <div class="import-layout">
-      <section class="panel import-panel">
-        <div class="panel-title"><div><h2>Importer un fichier CSV</h2><p>Glissez un fichier ou choisissez-le depuis votre appareil.</p></div><span class="panel-title-icon material-icons">drive_folder_upload</span></div>
-        <form (submit)="upload($event)" class="import-form">
-          <label class="dropzone" for="file" [class.has-file]="file()" [class.dragging]="dragging()"
-                 (dragover)="onDragOver($event)" (dragleave)="dragging.set(false)" (drop)="onDrop($event)">
-            <span class="upload-icon material-icons">{{ file() ? 'task' : 'upload_file' }}</span>
-            @if (file(); as selected) {
-              <strong>{{ selected.name }}</strong>
-              <span>{{ formatSize(selected.size) }} · {{ parsed()?.rows?.length ?? 0 }} avis détectés</span>
-            } @else {
-              <strong>Déposez votre fichier CSV ici</strong><span>UTF-8 · 5 Mo et 2000 avis maximum</span>
-            }
-            <span class="browse-button">Parcourir les fichiers</span>
-            <input id="file" type="file" accept=".csv,text/csv" (change)="onFileInput($event)" />
-          </label>
+    <ol class="stepper" aria-label="Étapes de l'import">
+      @for (s of steps; track s.n) {
+        <li [class.active]="step() === s.n" [class.done]="step() > s.n">
+          <span class="step-dot">@if (step() > s.n) { <span class="icon">check</span> } @else { {{ s.n }} }</span>
+          <span class="step-label">{{ s.label }}</span>
+        </li>
+      }
+    </ol>
 
-          @if (parseError()) { <p class="parse-error">{{ parseError() }}</p> }
-          @if (parsed(); as p) {
-            @if (p.warnings.length) { <ul class="warnings">@for (w of p.warnings; track $index) { <li>{{ w }}</li> }</ul> }
-          }
-
-          @if (loading()) { <mat-progress-bar class="progress" mode="determinate" [value]="progress()" /><p class="progress-label">{{ progress() }} % · analyse en cours…</p> }
-          <button class="primary-action submit-button" type="submit" [disabled]="!parsed()?.rows?.length || loading()"><span class="material-icons">{{ loading() ? 'hourglass_top' : 'upload' }}</span>{{ loading() ? 'Import en cours…' : 'Importer et analyser' }}</button>
-        </form>
-
-        @if (report(); as r) {
-          <div class="report" aria-live="polite">
-            <span class="report-icon material-icons">{{ loading() ? 'sync' : 'check_circle' }}</span>
-            <div>
-              <strong>{{ loading() ? 'Import en cours' : 'Import terminé' }}</strong>
-              <p>{{ r.total }} lignes · {{ r.analyzed }} avis analysés · {{ r.cacheHits }} depuis le cache · {{ r.analyzed - r.cacheHits }} appels à l'API · {{ r.errors.length }} erreur(s)</p>
-              @if (r.errors.length) { <ul>@for (error of r.errors; track $index) { <li>{{ error }}</li> }</ul> }
-              @if (!loading()) { <p class="report-links"><a routerLink="/dashboard">Voir le tableau de bord</a> · <a routerLink="/reviews">Voir les avis</a></p> }
+    @switch (step()) {
+      <!-- Étape 1 : choisir le fichier -->
+      @case (1) {
+        <section class="card fade-in">
+          <div class="card-body">
+            <label class="dropzone" for="file" [class.dragging]="dragging()"
+                   (dragover)="onDragOver($event)" (dragleave)="dragging.set(false)" (drop)="onDrop($event)">
+              <span class="drop-icon"><span class="icon">upload_file</span></span>
+              <strong>Glissez votre fichier CSV ici</strong>
+              <span class="muted">ou <span class="link-btn">parcourez vos fichiers</span> · 5 Mo maximum</span>
+              <input id="file" type="file" accept=".csv,text/csv" (change)="onFileInput($event)" />
+            </label>
+            @if (parseError()) { <div class="alert alert-danger fade-in"><span class="icon">error</span><div><strong>{{ file()?.name }}</strong> — {{ parseError() }}</div></div> }
+            <div class="format-help">
+              <div>
+                <h3>Format attendu</h3>
+                <p class="muted">Une colonne pour le texte de l’avis, une colonne (facultative) pour le produit.</p>
+              </div>
+              <ul>
+                <li><span class="icon">check_circle</span>En-têtes <code>text</code>/<code>texte</code>/<code>avis</code> et <code>product</code>/<code>produit</code></li>
+                <li><span class="icon">check_circle</span>Séparateur virgule ou point-virgule (export Excel)</li>
+                <li><span class="icon">check_circle</span>Français, anglais et arabe (UTF-8)</li>
+              </ul>
             </div>
           </div>
-        }
-      </section>
+        </section>
+      }
 
-      <aside class="panel format-panel">
-        <span class="format-icon material-icons">description</span><span class="eyebrow">FORMAT ATTENDU</span><h2>Un CSV simple.</h2>
-        <p>Une colonne pour le texte de l'avis et, si disponible, une colonne pour le produit.</p>
-        <div class="csv-example"><div><span>text</span><span>product</span></div><div><span>Très bon service !</span><span>Produit A</span></div><div><span dir="auto">المنتج رائع</span><span>Produit B</span></div></div>
-        <div class="format-footnote"><span class="material-icons">info</span>En-têtes acceptés : text/texte/avis et product/produit. Séparateur virgule ou point-virgule (Excel). Sans en-tête : 1re colonne = texte, 2e = produit.</div>
-      </aside>
-    </div>
+      <!-- Étape 2 : vérifier avant d'envoyer -->
+      @case (2) {
+        @if (parsed(); as p) {
+          <section class="card fade-in">
+            <div class="card-header">
+              <div class="file-info">
+                <span class="file-icon"><span class="icon">draft</span></span>
+                <div><h2>{{ file()?.name }}</h2><p class="card-subtitle">{{ formatSize(file()?.size ?? 0) }} · séparateur {{ separator(p.delimiter) }} · {{ p.hasHeader ? 'en-têtes reconnus' : 'sans en-tête (1re colonne = texte)' }}</p></div>
+              </div>
+              <button class="btn btn-ghost btn-sm" type="button" (click)="selectFile(null)"><span class="icon">swap_horiz</span>Changer de fichier</button>
+            </div>
+            <div class="card-body stack">
+              <div class="alert alert-success"><span class="icon">fact_check</span><div><strong>{{ fmt(p.rows.length) }} avis prêts à être analysés.</strong> Les avis déjà connus seront servis par le cache, sans consommer de crédit.</div></div>
+              @for (w of p.warnings; track $index) { <div class="alert alert-warning"><span class="icon">warning</span><div>{{ w }}</div></div> }
+              <div>
+                <h3 class="preview-title">Aperçu des {{ previewRows().length }} premières lignes</h3>
+                <div class="table-wrap preview">
+                  <table class="table">
+                    <thead><tr><th class="line-col">Ligne</th><th>Avis</th><th>Produit</th></tr></thead>
+                    <tbody>
+                      @for (r of previewRows(); track r.line) {
+                        <tr><td class="muted tabular line-col">{{ r.line }}</td><td><p class="review-text" dir="auto">{{ r.text }}</p></td><td>@if (r.product) { <span class="tag">{{ r.product }}</span> } @else { <span class="muted">—</span> }</td></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+            <div class="card-footer footer-actions">
+              <button class="btn btn-secondary" type="button" (click)="selectFile(null)">Annuler</button>
+              <button class="btn btn-primary" type="button" (click)="upload()"><span class="icon">auto_awesome</span>Analyser {{ fmt(p.rows.length) }} avis</button>
+            </div>
+          </section>
+        }
+      }
+
+      <!-- Étape 3 : analyse en cours, puis bilan -->
+      @default {
+        @if (report(); as r) {
+          <section class="card fade-in">
+            <div class="card-body stack">
+              <div class="run-head">
+                <span class="run-icon" [class.done]="!loading()" [class.warn]="!loading() && r.errors.length > 0">
+                  <span class="icon fill">{{ loading() ? 'progress_activity' : r.errors.length ? 'error' : 'check_circle' }}</span>
+                </span>
+                <div class="run-text">
+                  <h2>{{ loading() ? 'Analyse en cours…' : r.errors.length ? 'Import terminé avec des erreurs' : 'Import terminé' }}</h2>
+                  <p class="muted">{{ loading() ? 'Vous pouvez suivre la progression ci-dessous.' : fmt(r.analyzed) + ' avis analysés sur ' + fmt(r.total) + ' lignes.' }}</p>
+                </div>
+                <strong class="run-pct tabular">{{ progress() }}%</strong>
+              </div>
+              <mat-progress-bar mode="determinate" [value]="progress()" />
+              <div class="tiles">
+                <div class="tile"><span class="muted">Avis analysés</span><strong class="tabular">{{ fmt(r.analyzed) }}</strong></div>
+                <div class="tile"><span class="muted">Depuis le cache</span><strong class="tabular">{{ fmt(r.cacheHits) }}</strong></div>
+                <div class="tile"><span class="muted">Appels à l’IA</span><strong class="tabular">{{ fmt(r.analyzed - r.cacheHits) }}</strong></div>
+                <div class="tile" [class.has-errors]="r.errors.length"><span class="muted">Erreurs</span><strong class="tabular">{{ fmt(r.errors.length) }}</strong></div>
+              </div>
+              @if (r.errors.length) {
+                <details class="errors">
+                  <summary>Voir le détail des {{ r.errors.length }} erreur(s)</summary>
+                  <ul>@for (e of r.errors; track $index) { <li>{{ e }}</li> }</ul>
+                </details>
+              }
+            </div>
+            @if (!loading()) {
+              <div class="card-footer footer-actions">
+                <button class="btn btn-secondary" type="button" (click)="selectFile(null)"><span class="icon">upload_file</span>Importer un autre fichier</button>
+                <a class="btn btn-primary" routerLink="/dashboard"><span class="icon">space_dashboard</span>Voir le tableau de bord</a>
+              </div>
+            }
+          </section>
+        }
+      }
+    }
   `,
   styles: [`
-    :host { display: block; }
-    .import-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(260px, .8fr); align-items: start; gap: 16px; }
-    .panel-title-icon { display: grid; width: 34px; height: 34px; place-items: center; color: var(--green); background: var(--green-soft); border-radius: 8px; font-size: 18px; }
-    .import-form { padding: 20px; }.dropzone { display: flex; min-height: 230px; align-items: center; flex-direction: column; justify-content: center; gap: 8px; padding: 22px; background: #fbfcfb; border: 1px dashed #bfcfc4; border-radius: 6px; text-align: center; cursor: pointer; transition: background .15s, border-color .15s; }.dropzone:hover, .dropzone.has-file, .dropzone.dragging { background: #f2f8f4; border-color: #6ca98c; }
-    .upload-icon { display: grid; width: 48px; height: 48px; place-items: center; margin-bottom: 3px; color: var(--green); background: var(--green-soft); border-radius: 13px; font-size: 23px; }.dropzone strong { max-width: 100%; overflow-wrap: anywhere; font-size: 12px; }.dropzone > span:not(.upload-icon):not(.browse-button) { color: #89958e; font-size: 10px; }
-    .browse-button { margin-top: 6px; padding: 8px 12px; color: var(--green-dark); background: #fff; border: 1px solid #d9e4dc; border-radius: 4px; font-size: 10px; font-weight: 600; }.dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
-    .parse-error { margin: 12px 0 0; color: var(--red); font-size: 11px; }.warnings { margin: 12px 0 0; padding-left: 16px; color: var(--amber); font-size: 10px; }
-    .progress { margin-top: 15px; }.progress-label { margin: 6px 0 0; color: var(--muted); font-size: 10px; }
-    .submit-button { width: 100%; min-height: 42px; margin-top: 14px; }.report { display: flex; gap: 11px; margin: 0 20px 20px; padding: 14px; color: #376d53; background: #edf6f0; border-radius: 5px; }.report-icon { font-size: 19px; }.report strong { font-size: 11px; }.report p, .report ul { margin: 4px 0 0; color: #657c6e; font-size: 10px; }.report ul { max-height: 180px; overflow: auto; padding-left: 16px; }.report-links a { color: var(--green-dark); font-weight: 600; }
-    .format-panel { padding: 21px; }.format-icon { display: grid; width: 38px; height: 38px; place-items: center; margin-bottom: 17px; color: #a47734; background: #f8f1e4; border-radius: 9px; font-size: 20px; }.format-panel .eyebrow { margin-bottom: 7px; font-size: 9px; }.format-panel h2 { font-size: 17px; }.format-panel > p { margin: 8px 0 16px; color: var(--muted); font-size: 11px; }
-    .csv-example { overflow: hidden; border: 1px solid var(--line); border-radius: 5px; }.csv-example > div { display: grid; grid-template-columns: 1.2fr .8fr; gap: 8px; padding: 10px; border-bottom: 1px solid #edf0ed; color: #657168; font-size: 9px; }.csv-example > div:first-child { color: #69756e; background: #f7f9f7; font-weight: 700; }.csv-example > div:last-child { border: 0; }.csv-example span { min-width: 0; overflow-wrap: anywhere; }
-    .format-footnote { display: flex; gap: 7px; margin-top: 15px; color: #87928c; font-size: 9px; line-height: 1.5; }.format-footnote .material-icons { color: #9c793f; font-size: 15px; }
-    @media (max-width: 850px) { .import-layout { grid-template-columns: 1fr; } }
+    .stepper { display: flex; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; counter-reset: step; }
+    .stepper li { display: flex; flex: 1; align-items: center; gap: 10px; color: var(--text-3); font-size: 14px; font-weight: 550; }
+    .stepper li:not(:last-child)::after { content: ''; flex: 1; height: 2px; margin: 0 4px; background: var(--border); border-radius: 2px; }
+    .stepper li.done:not(:last-child)::after { background: var(--brand); }
+    .step-dot { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 auto; color: var(--text-3); background: var(--surface); border: 1.5px solid var(--border-strong); border-radius: 50%; font-size: 13px; font-weight: 650; }
+    .step-dot .icon { font-size: 16px; }
+    li.active { color: var(--text); } li.active .step-dot { color: #fff; background: var(--brand); border-color: var(--brand); box-shadow: var(--focus); }
+    li.done .step-dot { color: var(--brand); background: var(--brand-50); border-color: var(--brand); }
+    .dropzone {
+      position: relative; display: grid; justify-items: center; gap: 6px; padding: 48px 24px; text-align: center; cursor: pointer;
+      background: var(--surface-2); border: 1.5px dashed var(--border-strong); border-radius: var(--r-lg); transition: border-color .15s, background .15s;
+    }
+    .dropzone:hover, .dropzone.dragging { background: var(--brand-50); border-color: var(--brand); }
+    .dropzone strong { font-size: 16px; }
+    .drop-icon { display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 6px; color: var(--brand); background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-xs); }
+    .drop-icon .icon { font-size: 28px; }
+    .dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .dropzone + .alert { margin-top: 16px; }
+    .format-help { display: grid; grid-template-columns: 1fr 1.3fr; gap: 24px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .format-help p { margin-top: 4px; font-size: 13.5px; }
+    .format-help ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; color: var(--text-2); font-size: 13.5px; }
+    .format-help li { display: flex; align-items: center; gap: 8px; } .format-help li .icon { color: var(--pos); font-size: 18px; }
+    code { padding: 1px 5px; background: var(--neu-soft); border-radius: 4px; font-size: 12.5px; }
+    .file-info { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .file-info h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-icon { display: grid; place-items: center; width: 40px; height: 40px; flex: 0 0 auto; color: var(--brand); background: var(--brand-50); border-radius: 10px; }
+    .stack { display: grid; gap: 14px; }
+    .preview-title { margin: 6px 0 10px; }
+    .preview { border: 1px solid var(--border); border-radius: var(--r); }
+    .line-col { width: 70px; }
+    .footer-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    .run-head { display: flex; align-items: center; gap: 14px; }
+    .run-icon { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; color: var(--brand); background: var(--brand-50); border-radius: 12px; }
+    .run-icon .icon { font-size: 26px; } .run-icon:not(.done) .icon { animation: spin 1s linear infinite; }
+    .run-icon.done { color: var(--pos); background: var(--pos-soft); } .run-icon.warn { color: var(--warn); background: var(--warn-soft); }
+    .run-text { flex: 1; } .run-pct { font-size: 22px; font-weight: 700; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .tile { display: grid; gap: 4px; padding: 14px 16px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r); font-size: 13px; }
+    .tile strong { font-size: 22px; font-weight: 650; } .tile.has-errors strong { color: var(--neg-text); }
+    .errors { padding: 12px 14px; background: var(--neg-soft); border-radius: var(--r); color: var(--neg-text); font-size: 13.5px; }
+    .errors summary { cursor: pointer; font-weight: 600; }
+    .errors ul { max-height: 220px; margin: 10px 0 0; padding-left: 18px; overflow: auto; }
+    @media (max-width: 760px) { .step-label { display: none; } .format-help { grid-template-columns: 1fr; } .tiles { grid-template-columns: repeat(2, 1fr); } }
   `],
 })
 export class ImportPageComponent {
   private readonly api = inject(ReviewApi);
+  readonly maxRows = MAX_ROWS;
+  readonly steps = [{ n: 1, label: 'Choisir le fichier' }, { n: 2, label: 'Vérifier' }, { n: 3, label: 'Analyser' }];
   readonly file = signal<File | null>(null);
   readonly parsed = signal<ParsedCsv | null>(null);
   readonly parseError = signal('');
@@ -92,6 +201,11 @@ export class ImportPageComponent {
   readonly loading = signal(false);
   readonly progress = signal(0);
   readonly dragging = signal(false);
+
+  readonly step = computed(() => (this.report() ? 3 : this.parsed() && !this.parseError() ? 2 : 1));
+  readonly previewRows = computed(() => this.parsed()?.rows.slice(0, PREVIEW_ROWS) ?? []);
+  readonly fmt = formatNumber;
+  readonly separator = (d: string) => SEPARATORS[d] ?? d;
 
   onFileInput(event: Event) {
     const input = event.target as HTMLInputElement;
@@ -115,6 +229,7 @@ export class ImportPageComponent {
     this.parsed.set(null);
     this.report.set(null);
     this.parseError.set('');
+    this.progress.set(0);
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
       this.parseError.set('Fichier trop volumineux (5 Mo max).');

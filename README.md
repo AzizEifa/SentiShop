@@ -34,8 +34,9 @@ SentiShop/
 │           ├── core/
 │           │   ├── api/           review-api, dashboard-api (appels REST)
 │           │   ├── csv/           normalisation du CSV avant import
-│           │   ├── interceptors/  erreurs HTTP → snackbar
-│           │   └── models/        types partagés (Review, DashboardStats…)
+│           │   ├── interceptors/  erreurs HTTP → message à l'utilisateur
+│           │   ├── models/        types partagés (Review, DashboardStats…)
+│           │   └── format.ts      dates relatives, verdict de satisfaction, score net
 │           ├── features/          une page par fonctionnalité
 │           │   ├── dashboard/     F3 · B1 · B2   vue d'ensemble, camembert, résumé, export
 │           │   ├── analyze/       F1 · F4        analyser un avis
@@ -119,6 +120,21 @@ Accepté aussi : export Excel français (`;`), en-têtes `texte` / `avis` / `pro
 en-tête (1re colonne = texte). Lignes vides ignorées. Limites : texte 2000 caractères,
 produit 120, 2000 avis, 5 Mo. Exemples dans [`samples/`](samples/).
 
+## Expérience utilisateur
+
+| Page | Ce qu'elle apporte |
+|---|---|
+| Vue d'ensemble | **Verdict en clair** (« Vos clients sont satisfaits » / « Satisfaction à surveiller ») et score net, camembert, **avis négatifs à traiter** avec résumé IA, **classement des produits** les plus critiqués (clic = filtre), parcours de démarrage si la base est vide |
+| Avis clients | Filtres rapides par sentiment, recherche produit instantanée, filtres conservés dans l'URL, texte dépliable, confiance et date relative, pagination, export de la sélection |
+| Analyser un avis | Exemples FR / EN / AR en un clic, raccourci <kbd>Ctrl</kbd>+<kbd>Entrée</kbd>, suggestions de produits, résultat avec jauge de confiance et mention « cache : aucun crédit consommé », historique de la session |
+| Importer des avis | Parcours en 3 étapes : fichier (glisser-déposer, modèle téléchargeable) → **aperçu avant envoi** → progression en direct et bilan |
+| Comparer les modèles | Expérience B3 expliquée, taux de bonnes réponses par modèle, ✓ / ✗ par avis |
+
+Également : indicateur « API connectée / hors ligne », fil d'Ariane, squelettes de chargement,
+états vides explicites, mise en page adaptée au mobile, texte arabe affiché de droite à gauche.
+Polices et icônes sont **embarquées** (`@fontsource-variable/inter`, `material-symbols`) :
+l'interface s'affiche correctement même sans connexion internet.
+
 ## Données : cache et avis séparés
 
 | Table | Contenu | Rôle |
@@ -141,7 +157,7 @@ Aucun test n'appelle la vraie API (aucun crédit consommé).
 | Côté | Outils | Ce qui est vérifié |
 |---|---|---|
 | Back (25) | JUnit 5, Mockito, MockWebServer | 1er appel → HF appelé ; **2e appel identique → HF non appelé** (`cached=true`) ; avis identiques comptés séparément ; erreurs 401 / 429 / 503 (retry) ; résumé BART ; comparaison B3 ; migration |
-| Front (34) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 |
+| Front (45) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 ; verdict et score net ; historique d'analyse ; étapes de l'import ; état de l'API |
 
 ## Sécurité
 

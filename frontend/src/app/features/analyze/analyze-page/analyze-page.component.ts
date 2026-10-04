@@ -1,88 +1,221 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { PercentPipe } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
-import { MatIconModule } from '@angular/material/icon';
 import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { AnalyzeResponse } from '../../../core/models/models';
+import { DashboardApi } from '../../../core/api/dashboard-api.service';
+import { AnalyzeResponse, Sentiment } from '../../../core/models/models';
+import { SENTIMENT_CLASS, formatRelative } from '../../../core/format';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
+
+export interface HistoryItem extends AnalyzeResponse { text: string; product: string; at: string; }
+
+const HISTORY_KEY = 'sentishop.analyze.history';
+const MAX_TEXT = 2000;
+
+/** Exemples prêts à l'emploi pour la démonstration (FR / EN / AR). */
+export const EXAMPLES = [
+  { lang: 'FR', text: 'Livraison rapide et produit conforme à la description, je recommande !', product: 'Casque Bluetooth' },
+  { lang: 'EN', text: 'The strap broke after one week. Very disappointed with the quality.', product: 'Montre connectée' },
+  { lang: 'AR', text: 'المنتج عادي، لا بأس به', product: 'Tapis de yoga' },
+];
+
+const INTERPRETATION: Record<Sentiment, string> = {
+  POSITIVE: 'Le client exprime une expérience globalement positive.',
+  NEUTRAL: 'Le ton est neutre ou factuel, sans émotion marquée.',
+  NEGATIVE: 'Le client exprime une insatisfaction : avis à traiter en priorité.',
+};
 
 @Component({
   selector: 'app-analyze-page',
   standalone: true,
-  imports: [FormsModule, PercentPipe, MatIconModule, MatProgressBarModule, SentimentBadgeComponent],
+  imports: [FormsModule, PercentPipe, RouterLink, MatProgressBarModule, SentimentBadgeComponent],
   template: `
-    <header class="page-heading">
-      <div><span class="eyebrow">ANALYSE À LA DEMANDE</span><h1>Comprenez chaque avis.</h1><p>Obtenez le sentiment exprimé dans un commentaire en quelques secondes.</p></div>
+    <header class="page-header">
+      <div>
+        <h1>Analyser un avis</h1>
+        <p class="subtitle">Collez un commentaire client en français, anglais ou arabe : l’IA en détecte le sentiment.</p>
+      </div>
     </header>
 
-    <div class="analyze-layout">
-      <section class="panel analyze-form">
-        <div class="panel-title"><div><h2>Nouvelle analyse</h2><p>Rédigez ou collez le commentaire à analyser.</p></div><span class="panel-title-icon material-icons">auto_awesome</span></div>
-        <div class="form-body">
-          <label class="field-label" for="review-text">Commentaire <span>FR · EN · AR</span></label>
-          <textarea id="review-text" class="input-control review-input" dir="auto" rows="8" maxlength="2000" [(ngModel)]="text" placeholder="Ex. La livraison était rapide et le produit conforme à mes attentes…"></textarea>
-          <div class="input-meta"><span>Votre texte reste associé à l'analyse de sentiment.</span><span>{{ text.length }} / 2000</span></div>
-          <label class="field-label product-label" for="product">Produit <span>FACULTATIF</span></label>
-          <input id="product" class="input-control" [(ngModel)]="product" placeholder="Nom du produit" />
-          @if (loading()) { <mat-progress-bar class="progress" mode="indeterminate" /> }
-          <button class="primary-action analyze-button" type="button" (click)="analyze()" [disabled]="!text.trim() || loading()"><span class="material-icons">psychology</span>{{ loading() ? 'Analyse en cours…' : 'Analyser le sentiment' }}</button>
-        </div>
+    <div class="layout">
+      <section class="card">
+        <form class="card-body form" (submit)="$event.preventDefault(); analyze()">
+          <div class="field">
+            <label class="label" for="review-text">Avis client <span class="optional tabular">{{ text.length }} / {{ maxText }}</span></label>
+            <textarea id="review-text" class="textarea" dir="auto" rows="7" [maxlength]="maxText" name="text" [(ngModel)]="text"
+                      (keydown.control.enter)="analyze()" (keydown.meta.enter)="analyze()"
+                      placeholder="Ex. La livraison était rapide et le produit conforme à mes attentes…"></textarea>
+          </div>
+          <div class="examples">
+            <span class="hint">Essayer un exemple :</span>
+            @for (ex of examples; track ex.lang) {
+              <button class="chip" type="button" (click)="useExample(ex)" [title]="ex.text"><span class="lang">{{ ex.lang }}</span>{{ ex.text.length > 26 ? ex.text.slice(0, 26) + '…' : ex.text }}</button>
+            }
+          </div>
+          <div class="field">
+            <label class="label" for="product">Produit <span class="optional">facultatif</span></label>
+            <input id="product" class="input" name="product" list="product-list" [(ngModel)]="product" placeholder="Ex. Casque Bluetooth" maxlength="120" />
+            <datalist id="product-list">@for (p of products(); track p) { <option [value]="p"></option> }</datalist>
+            <span class="hint">Associer un produit permet de le suivre dans le tableau de bord.</span>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary btn-lg" type="submit" [disabled]="!text.trim() || loading()">
+              <span class="icon">{{ loading() ? 'hourglass_top' : 'auto_awesome' }}</span>{{ loading() ? 'Analyse en cours…' : 'Analyser le sentiment' }}
+            </button>
+            <span class="hint shortcut"><kbd>Ctrl</kbd> + <kbd>Entrée</kbd></span>
+          </div>
+          @if (loading()) { <mat-progress-bar mode="indeterminate" /> }
+        </form>
       </section>
 
-      <aside class="side-column">
+      <aside class="side">
         @if (result(); as r) {
-          <section class="panel result-panel">
-            <span class="eyebrow">RÉSULTAT</span><h2>Analyse terminée</h2>
-            <div class="result-class"><app-sentiment-badge [label]="r.label" /><span>{{ r.score | percent: '1.0-0' }} de confiance</span></div>
-            <div class="confidence-track"><span [class]="'confidence-fill ' + r.label.toLowerCase()" [style.width.%]="r.score * 100"></span></div>
-            <p class="result-note">{{ resultMessage(r.label) }}</p>
-            @if (r.cached) { <div class="cache-note"><mat-icon>bolt</mat-icon>Résultat récupéré du cache</div> }
+          <section class="card result fade-in" [class]="'card result fade-in ' + tone(r.label)">
+            <div class="card-body">
+              <span class="eyebrow">Résultat</span>
+              <div class="result-head">
+                <app-sentiment-badge [label]="r.label" size="lg" />
+                <span class="confidence tabular">{{ r.score | percent: '1.0-0' }}<small>confiance</small></span>
+              </div>
+              <div class="meter big" [class]="'meter big ' + tone(r.label)"><span [style.width.%]="r.score * 100"></span></div>
+              <p class="interpretation">{{ interpretation(r.label) }}</p>
+              <div class="source" [class.cached]="r.cached">
+                <span class="icon">{{ r.cached ? 'bolt' : 'cloud_done' }}</span>
+                {{ r.cached ? 'Résultat du cache : aucun crédit Hugging Face consommé' : 'Analysé par Hugging Face (XLM-RoBERTa)' }}
+              </div>
+            </div>
+            <div class="card-footer result-actions">
+              <button class="btn btn-ghost btn-sm" type="button" (click)="reset()"><span class="icon">add</span>Nouvel avis</button>
+              <a class="link-btn" routerLink="/dashboard">Voir le tableau de bord<span class="icon">arrow_forward</span></a>
+            </div>
           </section>
         } @else {
-          <section class="panel preview-panel"><div class="preview-icon"><span class="material-icons">query_stats</span></div><span class="eyebrow">VOTRE RÉSULTAT</span><h2>Une lecture, trois signaux.</h2><p>L'analyse classe le commentaire comme positif, neutre ou négatif et estime son niveau de confiance.</p><div class="preview-legend"><div><span class="legend-dot positive-dot"></span>Positif</div><div><span class="legend-dot neutral-dot"></span>Neutre</div><div><span class="legend-dot negative-dot"></span>Négatif</div></div></section>
+          <section class="card placeholder">
+            <div class="empty-state">
+              <div class="empty-icon"><span class="icon">psychology</span></div>
+              <h3>Le résultat s’affichera ici</h3>
+              <p>Sentiment détecté (positif, neutre ou négatif) et niveau de confiance du modèle.</p>
+              <div class="legend"><span><span class="dot pos"></span>Positif</span><span><span class="dot neu"></span>Neutre</span><span><span class="dot neg"></span>Négatif</span></div>
+            </div>
+          </section>
         }
-        <section class="language-note"><span class="material-icons">translate</span><div><strong>Multilingue</strong><p>Les commentaires en français, anglais et arabe sont pris en charge.</p></div></section>
+
+        @if (history().length) {
+          <section class="card">
+            <div class="card-header"><h2>Analyses récentes</h2><button class="link-btn" type="button" (click)="clearHistory()">Effacer</button></div>
+            <ul class="history">
+              @for (h of history(); track h.at) {
+                <li><button type="button" (click)="reuse(h)" title="Réutiliser ce texte">
+                  <span class="dot" [class]="'dot ' + tone(h.label)"></span>
+                  <span class="history-text" dir="auto">{{ h.text }}</span>
+                  <span class="muted nowrap">{{ relative(h.at) }}</span>
+                </button></li>
+              }
+            </ul>
+          </section>
+        }
       </aside>
     </div>
   `,
   styles: [`
-    :host { display: block; }
-    .analyze-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(260px, .8fr); align-items: start; gap: 16px; }
-    .panel-title-icon { display: grid; width: 34px; height: 34px; place-items: center; color: var(--green); background: var(--green-soft); border-radius: 8px; font-size: 18px; }
-    .form-body { padding: 21px; }.field-label { display: flex; justify-content: space-between; align-items: center; }.field-label span { color: #9aa49e; font-size: 9px; letter-spacing: .5px; }
-    .review-input { min-height: 180px; resize: vertical; line-height: 1.6; }.review-input::placeholder { color: #abb4af; }
-    .input-meta { display: flex; justify-content: space-between; gap: 12px; margin: 7px 0 22px; color: #929d96; font-size: 10px; }.product-label { margin-bottom: 7px; }
-    .progress { margin-top: 15px; }.analyze-button { width: 100%; margin-top: 18px; min-height: 43px; }
-    .side-column { display: grid; gap: 13px; }.preview-panel, .result-panel { min-height: 250px; padding: 22px; }
-    .preview-icon { display: grid; width: 40px; height: 40px; place-items: center; margin-bottom: 18px; color: #9a7134; background: #f8f1e4; border-radius: 10px; }.preview-icon .material-icons { font-size: 21px; }
-    .preview-panel .eyebrow, .result-panel .eyebrow { margin-bottom: 7px; font-size: 9px; }.preview-panel h2, .result-panel h2 { font-size: 17px; }.preview-panel > p, .result-note { margin: 9px 0 18px; color: var(--muted); font-size: 11px; }
-    .preview-legend { display: flex; flex-wrap: wrap; gap: 13px; padding-top: 15px; border-top: 1px solid var(--line); }.preview-legend > div { display: flex; align-items: center; gap: 6px; color: #66736c; font-size: 10px; }.legend-dot { width: 7px; height: 7px; border-radius: 50%; }.positive-dot { background: #48a77b; }.neutral-dot { background: #d3a250; }.negative-dot { background: #d3756c; }
-    .result-panel { border-top: 3px solid var(--green); }.result-class { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 25px; }.result-class > span { color: #718078; font-size: 11px; }.confidence-track { height: 7px; margin-top: 13px; overflow: hidden; background: #eef2ef; border-radius: 10px; }.confidence-fill { display: block; height: 100%; background: #48a77b; border-radius: inherit; }.confidence-fill.neutral { background: #d3a250; }.confidence-fill.negative { background: #d3756c; }.result-note { margin: 17px 0 0; padding-top: 13px; border-top: 1px solid var(--line); }.cache-note { display: flex; align-items: center; gap: 6px; color: #75827b; font-size: 10px; }.cache-note mat-icon { width: 16px; height: 16px; font-size: 16px; }
-    .language-note { display: flex; gap: 11px; padding: 15px; color: #6d7c73; background: #edf4ef; border-radius: 6px; }.language-note > .material-icons { color: var(--green); font-size: 19px; }.language-note strong { font-size: 11px; }.language-note p { margin: 4px 0 0; color: #718078; font-size: 10px; }
-    @media (max-width: 850px) { .analyze-layout { grid-template-columns: 1fr; }.side-column { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-    @media (max-width: 520px) { .side-column { grid-template-columns: 1fr; }.form-body { padding: 16px; }.input-meta { font-size: 9px; } }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); align-items: start; gap: 20px; }
+    .form { display: grid; gap: 20px; }
+    .examples { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: -8px; }
+    .lang { color: var(--brand-600); font-size: 11.5px; font-weight: 700; }
+    .actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .layout > * { min-width: 0; }
+    .side { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; min-width: 0; }
+    .placeholder .legend { display: flex; gap: 16px; margin-top: 8px; color: var(--text-3); font-size: 13px; }
+    .placeholder .legend > span { display: inline-flex; align-items: center; gap: 6px; }
+    .result { border-top: 3px solid var(--neu); } .result.pos { border-top-color: var(--pos); } .result.neg { border-top-color: var(--neg); }
+    .eyebrow { color: var(--text-3); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+    .result-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 14px; }
+    .confidence { display: grid; justify-items: end; font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+    .confidence small { color: var(--text-3); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .meter.big { height: 8px; }
+    .interpretation { margin-top: 14px; color: var(--text-2); }
+    .source { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding: 10px 12px; color: var(--text-2); background: var(--surface-2); border-radius: 8px; font-size: 13px; }
+    .source .icon { font-size: 18px; color: var(--text-3); }
+    .source.cached { color: var(--brand-600); background: var(--brand-50); } .source.cached .icon { color: var(--brand); }
+    .result-actions { display: flex; align-items: center; justify-content: space-between; }
+    .history { margin: 0; padding: 6px; list-style: none; }
+    .history button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; background: none; border: 0; border-radius: 8px; text-align: start; font-size: 13.5px; }
+    .history button:hover { background: var(--surface-2); }
+    .history-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .history .muted { font-size: 12px; }
+    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .shortcut { display: none; } }
   `],
 })
-export class AnalyzePageComponent {
+export class AnalyzePageComponent implements OnInit {
   private readonly api = inject(ReviewApi);
+  private readonly dashboard = inject(DashboardApi);
+  readonly maxText = MAX_TEXT;
+  readonly examples = EXAMPLES;
   text = '';
   product = '';
-  loading = signal(false);
-  result = signal<AnalyzeResponse | null>(null);
+  readonly loading = signal(false);
+  readonly result = signal<AnalyzeResponse | null>(null);
+  readonly products = signal<string[]>([]);
+  readonly history = signal<HistoryItem[]>(loadHistory());
+
+  readonly tone = (l: Sentiment) => SENTIMENT_CLASS[l];
+  readonly interpretation = (l: Sentiment) => INTERPRETATION[l];
+  readonly relative = (iso: string) => formatRelative(iso);
+
+  ngOnInit() {
+    this.dashboard.products().subscribe({ next: (p) => this.products.set(p), error: () => {} });
+  }
 
   analyze() {
+    const text = this.text.trim();
+    if (!text || this.loading()) return;
+    const product = this.product.trim();
     this.loading.set(true);
     this.result.set(null);
-    this.api.analyze(this.text, this.product.trim() || undefined)
+    this.api.analyze(text, product || undefined)
       .pipe(finalize(() => this.loading.set(false)))
-      .subscribe({ next: (response) => this.result.set(response), error: () => {} });
+      .subscribe({
+        next: (response) => {
+          this.result.set(response);
+          this.pushHistory({ ...response, text, product, at: new Date().toISOString() });
+        },
+        error: () => {},
+      });
   }
 
-  resultMessage(label: AnalyzeResponse['label']) {
-    if (label === 'POSITIVE') return 'Ce commentaire exprime une expérience globalement positive.';
-    if (label === 'NEGATIVE') return 'Ce commentaire signale une expérience à examiner.';
-    return 'Ce commentaire présente un ton plutôt neutre.';
+  useExample(ex: (typeof EXAMPLES)[number]) {
+    this.text = ex.text;
+    this.product = ex.product;
+    this.result.set(null);
   }
+
+  reuse(h: HistoryItem) {
+    this.text = h.text;
+    this.product = h.product;
+    this.result.set(h);
+  }
+
+  reset() {
+    this.text = '';
+    this.result.set(null);
+  }
+
+  clearHistory() { this.history.set([]); saveHistory([]); }
+
+  private pushHistory(item: HistoryItem) {
+    const next = [item, ...this.history().filter((h) => h.text !== item.text)].slice(0, 6);
+    this.history.set(next);
+    saveHistory(next);
+  }
+}
+
+/** Historique conservé pendant la session du navigateur (sessionStorage peut être indisponible). */
+function loadHistory(): HistoryItem[] {
+  try { return JSON.parse(sessionStorage.getItem(HISTORY_KEY) ?? '[]'); } catch { return []; }
+}
+function saveHistory(items: HistoryItem[]) {
+  try { sessionStorage.setItem(HISTORY_KEY, JSON.stringify(items)); } catch { /* navigation privée */ }
 }

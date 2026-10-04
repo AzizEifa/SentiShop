@@ -2,146 +2,270 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { BaseChartDirective } from 'ng2-charts';
 import { ChartConfiguration } from 'chart.js';
+import { catchError, forkJoin, map, of } from 'rxjs';
 import { DashboardApi } from '../../../core/api/dashboard-api.service';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { DashboardStats, SummaryResponse } from '../../../core/models/models';
+import { DashboardStats, Review, SummaryResponse } from '../../../core/models/models';
+import { formatNumber, formatRelative, netScore, verdictOf } from '../../../core/format';
 
-/** Mêmes couleurs que les badges et les barres : positif / neutre / négatif. */
-export const SENTIMENT_COLORS = ['#48a77b', '#d3a250', '#d3756c'];
+/** Mêmes couleurs que le design system : positif / neutre / négatif. */
+export const SENTIMENT_COLORS = ['#1a9a6c', '#8a94a6', '#e0533f'];
+/** Nombre maximum de produits comparés (une requête de statistiques par produit). */
+const MAX_PRODUCTS = 15;
+
+export interface ProductRow { product: string; stats: DashboardStats; }
 
 @Component({
   selector: 'app-dashboard-page',
   standalone: true,
   imports: [RouterLink, BaseChartDirective],
   template: `
-    <header class="page-heading">
-      <div><span class="eyebrow">VUE D'ENSEMBLE</span><h1>Bonjour, voici vos avis.</h1><p>Un aperçu clair de ce que vos clients pensent.</p></div>
-      <a class="primary-action" routerLink="/analyze"><span class="material-icons">add</span>Analyser un avis</a>
-    </header>
-
-    <section class="toolbar">
-      <span class="toolbar-caption"><span class="material-icons">filter_list</span>Filtrer les résultats</span>
-      <div class="toolbar-actions">
-        <select class="input-control product-select" aria-label="Filtrer par produit" [value]="product()" (change)="selectProduct($event)">
+    <header class="page-header">
+      <div>
+        <h1>Vue d'ensemble</h1>
+        <p class="subtitle">{{ product() ? 'Produit : ' + product() : 'Ce que vos clients pensent de l’ensemble de vos produits' }}</p>
+      </div>
+      <div class="page-actions">
+        <label class="sr-only" for="product-filter">Filtrer par produit</label>
+        <select id="product-filter" class="select product-select" [value]="product()" (change)="selectProduct($any($event.target).value)">
           <option value="">Tous les produits</option>
           @for (item of products(); track item) { <option [value]="item">{{ item }}</option> }
         </select>
-        <a class="secondary-action" [href]="exportUrl()" download="avis.csv"><span class="material-icons">download</span>Exporter CSV</a>
+        <a class="btn btn-secondary" [href]="exportUrl()" download="avis.csv"><span class="icon">download</span>Exporter</a>
+        <a class="btn btn-primary" routerLink="/import"><span class="icon">upload</span>Importer des avis</a>
       </div>
-    </section>
+    </header>
 
     @if (stats(); as s) {
       @if (s.total > 0) {
-        <section class="metric-grid" aria-label="Statistiques des avis">
-          <article class="metric-card panel total-card"><div class="metric-top"><span>Total des avis</span><span class="metric-icon"><span class="material-icons">forum</span></span></div><strong>{{ s.total }}</strong><small>avis analysés</small></article>
-          <article class="metric-card panel positive-card"><div class="metric-top"><span>Positifs</span><span class="metric-icon"><span class="material-icons">sentiment_satisfied</span></span></div><strong>{{ s.positive }}</strong><small>{{ s.positivePct }}% du total</small></article>
-          <article class="metric-card panel neutral-card"><div class="metric-top"><span>Neutres</span><span class="metric-icon"><span class="material-icons">sentiment_neutral</span></span></div><strong>{{ s.neutral }}</strong><small>{{ s.neutralPct }}% du total</small></article>
-          <article class="metric-card panel negative-card"><div class="metric-top"><span>Négatifs</span><span class="metric-icon"><span class="material-icons">sentiment_dissatisfied</span></span></div><strong>{{ s.negative }}</strong><small>{{ s.negativePct }}% du total</small></article>
-        </section>
-
-        <div class="content-grid">
-          <section class="panel distribution">
-            <div class="panel-title"><div><h2>Répartition des sentiments</h2><p>{{ product() ? 'Produit : ' + product() : 'Tous les produits' }}</p></div><span class="subtle-tag">{{ s.total }} avis</span></div>
-            <div class="distribution-body">
-              <div class="chart-box">
-                <canvas baseChart type="doughnut" [data]="chartData()" [options]="chartOptions" aria-label="Camembert des sentiments" role="img"></canvas>
-                <div class="chart-center"><strong>{{ s.total }}</strong><span>avis</span></div>
-              </div>
-              <div class="sentiment-list">
-                <div class="sentiment-row"><div class="sentiment-label"><span class="swatch positive-swatch"></span><span>Positif</span><strong>{{ s.positivePct }}%</strong></div><div class="track"><span class="fill positive-fill" [style.width.%]="s.positivePct"></span></div></div>
-                <div class="sentiment-row"><div class="sentiment-label"><span class="swatch neutral-swatch"></span><span>Neutre</span><strong>{{ s.neutralPct }}%</strong></div><div class="track"><span class="fill neutral-fill" [style.width.%]="s.neutralPct"></span></div></div>
-                <div class="sentiment-row"><div class="sentiment-label"><span class="swatch negative-swatch"></span><span>Négatif</span><strong>{{ s.negativePct }}%</strong></div><div class="track"><span class="fill negative-fill" [style.width.%]="s.negativePct"></span></div></div>
-              </div>
+        <!-- 1. Verdict -->
+        @if (verdict(); as v) {
+          <section class="card verdict fade-in" [class]="'card verdict fade-in ' + v.tone">
+            <span class="verdict-icon"><span class="icon fill">{{ v.tone === 'pos' ? 'sentiment_very_satisfied' : v.tone === 'neg' ? 'warning' : 'balance' }}</span></span>
+            <div class="verdict-text">
+              <h2>{{ v.title }}</h2>
+              <p>{{ v.message }}</p>
+            </div>
+            <div class="net-score" title="Score net = % positifs − % négatifs">
+              <span class="net-value tabular">{{ net() > 0 ? '+' : net() < 0 ? '−' : '' }}{{ abs(net()) }}</span>
+              <span class="net-label">Score net</span>
             </div>
           </section>
-          <section class="panel insight-panel">
-            <div class="insight-symbol"><span class="material-icons">lightbulb</span></div>
-            <span class="eyebrow">À RETENIR</span><h2>Écoutez ce qui compte.</h2>
-            <p>Résumé automatique (modèle BART) des avis négatifs les plus récents{{ product() ? ' pour ce produit' : '' }}.</p>
-            <button class="text-action" type="button" (click)="summarize()" [disabled]="summarizing() || s.negative === 0"><span class="material-icons">auto_awesome</span>{{ summarizing() ? 'Résumé en cours…' : (s.negative === 0 ? 'Aucun avis négatif' : 'Résumer les avis négatifs') }}<span class="material-icons arrow">arrow_forward</span></button>
-            @if (summary(); as result) { <div class="summary"><h3>Résumé · {{ result.reviewsUsed }} avis</h3><p dir="auto">{{ result.summary }}</p></div> }
+        }
+
+        <!-- 2. Indicateurs -->
+        <section class="kpi-grid" aria-label="Indicateurs clés">
+          <article class="card kpi"><div class="kpi-label"><span class="icon">forum</span>Avis analysés</div><div class="kpi-value">{{ fmt(s.total) }}</div><div class="kpi-meta">{{ product() || 'Tous les produits' }}</div></article>
+          <article class="card kpi"><div class="kpi-label"><span class="dot pos"></span>Positifs</div><div class="kpi-value">{{ s.positivePct }}%</div><div class="kpi-meta">{{ fmt(s.positive) }} avis</div></article>
+          <article class="card kpi"><div class="kpi-label"><span class="dot neu"></span>Neutres</div><div class="kpi-value">{{ s.neutralPct }}%</div><div class="kpi-meta">{{ fmt(s.neutral) }} avis</div></article>
+          <article class="card kpi"><div class="kpi-label"><span class="dot neg"></span>Négatifs</div><div class="kpi-value">{{ s.negativePct }}%</div><div class="kpi-meta">{{ fmt(s.negative) }} avis</div></article>
+        </section>
+
+        <div class="grid-2">
+          <!-- 3. Répartition -->
+          <section class="card">
+            <div class="card-header"><div><h2>Répartition des sentiments</h2><p class="card-subtitle">Sur {{ fmt(s.total) }} avis</p></div></div>
+            <div class="card-body distribution">
+              <div class="chart-box">
+                <canvas baseChart type="doughnut" [data]="chartData()" [options]="chartOptions" role="img" [attr.aria-label]="s.positivePct + '% positifs, ' + s.neutralPct + '% neutres, ' + s.negativePct + '% négatifs'"></canvas>
+                <div class="chart-center"><strong class="tabular">{{ s.positivePct }}%</strong><span>positifs</span></div>
+              </div>
+              <ul class="legend">
+                <li><span class="dot pos"></span><span>Positif</span><strong class="tabular">{{ s.positivePct }}%</strong><span class="muted tabular">{{ fmt(s.positive) }}</span></li>
+                <li><span class="dot neu"></span><span>Neutre</span><strong class="tabular">{{ s.neutralPct }}%</strong><span class="muted tabular">{{ fmt(s.neutral) }}</span></li>
+                <li><span class="dot neg"></span><span>Négatif</span><strong class="tabular">{{ s.negativePct }}%</strong><span class="muted tabular">{{ fmt(s.negative) }}</span></li>
+              </ul>
+            </div>
+          </section>
+
+          <!-- 4. À traiter -->
+          <section class="card">
+            <div class="card-header">
+              <div><h2>Avis à traiter</h2><p class="card-subtitle">Derniers avis négatifs</p></div>
+              <a class="link-btn" routerLink="/reviews" [queryParams]="{ label: 'NEGATIVE', product: product() || null }">Tout voir<span class="icon">arrow_forward</span></a>
+            </div>
+            @if (negatives().length) {
+              <ul class="neg-list">
+                @for (r of negatives(); track r.id) {
+                  <li>
+                    <p class="review-text" dir="auto">{{ r.text }}</p>
+                    <div class="neg-meta">
+                      @if (r.product) { <span class="tag">{{ r.product }}</span> }
+                      <span class="muted">{{ relative(r.createdAt) }}</span>
+                    </div>
+                  </li>
+                }
+              </ul>
+              <div class="card-footer summary-zone">
+                @if (summary(); as res) {
+                  <div class="summary fade-in">
+                    <div class="summary-title"><span class="icon fill">auto_awesome</span>Résumé IA · {{ res.reviewsUsed }} avis</div>
+                    <p dir="auto">{{ res.summary }}</p>
+                  </div>
+                } @else {
+                  <button class="btn btn-secondary btn-sm" type="button" (click)="summarize()" [disabled]="summarizing()">
+                    <span class="icon">auto_awesome</span>{{ summarizing() ? 'Résumé en cours…' : 'Résumer les avis négatifs avec l’IA' }}
+                  </button>
+                  <span class="hint">Modèle BART (anglais) · consomme 1 crédit</span>
+                }
+              </div>
+            } @else {
+              <div class="empty-state compact"><div class="empty-icon"><span class="icon">task_alt</span></div><h3>Aucun avis négatif</h3><p>Rien à traiter pour le moment.</p></div>
+            }
           </section>
         </div>
+
+        <!-- 5. Par produit -->
+        @if (productRows().length > 1 || (productRows().length === 1 && !product())) {
+          <section class="card products">
+            <div class="card-header"><div><h2>Satisfaction par produit</h2><p class="card-subtitle">Les produits les plus critiqués en premier · cliquez pour filtrer</p></div></div>
+            <div class="table-wrap">
+              <table class="table">
+                <thead><tr><th>Produit</th><th class="num">Avis</th><th class="bar-col">Répartition</th><th class="num">Positifs</th><th class="num">Négatifs</th><th></th></tr></thead>
+                <tbody>
+                  @for (row of productRows(); track row.product) {
+                    <tr class="clickable" [class.selected]="row.product === product()" (click)="selectProduct(row.product === product() ? '' : row.product)">
+                      <td><strong>{{ row.product }}</strong>@if (row.stats.negativePct >= 35) { <span class="tag warn">À surveiller</span> }</td>
+                      <td class="num tabular">{{ fmt(row.stats.total) }}</td>
+                      <td class="bar-col"><div class="stack-bar" [attr.aria-label]="row.stats.positivePct + '% positifs'"><span class="pos" [style.width.%]="row.stats.positivePct"></span><span class="neu" [style.width.%]="row.stats.neutralPct"></span><span class="neg" [style.width.%]="row.stats.negativePct"></span></div></td>
+                      <td class="num tabular pos-text">{{ row.stats.positivePct }}%</td>
+                      <td class="num tabular neg-text">{{ row.stats.negativePct }}%</td>
+                      <td class="num"><span class="icon chevron">{{ row.product === product() ? 'close' : 'filter_alt' }}</span></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          </section>
+        }
       } @else {
-        <section class="panel empty-panel"><div class="empty-icon"><span class="material-icons">insights</span></div><h2>{{ product() ? 'Aucun avis pour ce produit' : 'Vos indicateurs apparaîtront ici' }}</h2><p>Importez un fichier d'avis ou analysez un premier commentaire pour commencer.</p><div class="empty-actions"><a class="primary-action" routerLink="/import"><span class="material-icons">upload_file</span>Importer des avis</a><a class="secondary-action" routerLink="/analyze">Analyser un avis</a></div></section>
+        @if (product()) {
+          <section class="card"><div class="empty-state"><div class="empty-icon"><span class="icon">filter_alt_off</span></div><h3>Aucun avis pour ce produit</h3><p>Choisissez un autre produit ou revenez à l’ensemble.</p><div class="page-actions"><button class="btn btn-secondary" type="button" (click)="selectProduct('')">Tous les produits</button></div></div></section>
+        } @else {
+          <section class="card onboarding fade-in">
+            <div class="onboarding-intro">
+              <span class="empty-icon"><span class="icon">rocket_launch</span></span>
+              <h2>Aucun avis pour le moment</h2>
+              <p>Ajoutez vos premiers avis : le tableau de bord indiquera en un coup d’œil si vos clients sont satisfaits.</p>
+            </div>
+            <ol class="steps">
+              <li><span class="step-num">1</span><div><h3>Importez un fichier CSV</h3><p>Une colonne texte, une colonne produit. Excel accepté.</p><a class="btn btn-primary btn-sm" routerLink="/import"><span class="icon">upload</span>Importer</a></div></li>
+              <li><span class="step-num">2</span><div><h3>Ou analysez un avis</h3><p>Collez un commentaire en français, anglais ou arabe.</p><a class="btn btn-secondary btn-sm" routerLink="/analyze"><span class="icon">edit_note</span>Analyser</a></div></li>
+              <li><span class="step-num">3</span><div><h3>Suivez la satisfaction</h3><p>Répartition, produits à surveiller et avis à traiter.</p></div></li>
+            </ol>
+          </section>
+        }
       }
     } @else if (loadError()) {
-      <section class="panel empty-panel"><div class="empty-icon"><span class="material-icons">cloud_off</span></div><h2>Serveur injoignable</h2><p>Vérifiez que le backend Spring Boot est démarré sur le port 8080.</p><div class="empty-actions"><button class="primary-action" type="button" (click)="refresh()">Réessayer</button></div></section>
+      <section class="card"><div class="empty-state"><div class="empty-icon error"><span class="icon">cloud_off</span></div><h3>Serveur injoignable</h3><p>Le backend Spring Boot ne répond pas sur le port 8080. Démarrez-le puis réessayez.</p><div class="page-actions"><button class="btn btn-primary" type="button" (click)="refresh()"><span class="icon">refresh</span>Réessayer</button></div></div></section>
     } @else {
-      <section class="panel empty-panel"><p>Chargement des indicateurs…</p></section>
+      <div class="skeletons" aria-busy="true" aria-label="Chargement">
+        <span class="skeleton" style="height: 88px"></span>
+        <div class="kpi-grid">@for (i of [1, 2, 3, 4]; track i) { <span class="skeleton" style="height: 118px"></span> }</div>
+        <div class="grid-2"><span class="skeleton" style="height: 300px"></span><span class="skeleton" style="height: 300px"></span></div>
+      </div>
     }
   `,
   styles: [`
-    :host { display: block; }
-    .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-    .toolbar-caption { display: flex; align-items: center; gap: 7px; color: #75817b; font-size: 11px; font-weight: 600; }
-    .toolbar-caption .material-icons { font-size: 17px; }.toolbar-actions { display: flex; gap: 10px; }
-    .product-select { width: auto; min-width: 190px; min-height: 36px; padding: 7px 32px 7px 10px; font-size: 11px; }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
-    .metric-card { min-width: 0; padding: 17px 18px 16px; }
-    .metric-top { display: flex; align-items: center; justify-content: space-between; color: #77827d; font-size: 11px; font-weight: 600; }
-    .metric-icon { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 8px; }
-    .metric-icon .material-icons { font-size: 18px; }
-    .metric-card > strong { display: block; margin-top: 13px; font: 700 27px/1.15 Manrope, sans-serif; }
-    .metric-card > small { display: block; margin-top: 5px; color: #919b95; font-size: 10px; }
-    .total-card .metric-icon { color: #476c5e; background: #edf3ef; }.positive-card .metric-icon { color: #23835f; background: #e7f4ed; }.neutral-card .metric-icon { color: #a27634; background: #f8f1e4; }.negative-card .metric-icon { color: #bd655c; background: #faeeec; }
-    .positive-card > strong { color: #267b5e; }.neutral-card > strong { color: #9b7335; }.negative-card > strong { color: #b85d55; }
-    .content-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(270px, .85fr); gap: 16px; }
-    .panel-title { min-height: 67px; }.subtle-tag { padding: 5px 8px; color: #75827b; background: #f4f7f4; border-radius: 4px; font-size: 10px; }
-    .distribution-body { display: flex; align-items: center; gap: clamp(24px, 5vw, 60px); min-height: 196px; padding: 28px 24px; }
-    .chart-box { position: relative; width: 170px; height: 170px; flex: 0 0 170px; }.chart-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-    .chart-center strong { font: 700 23px/1.1 Manrope, sans-serif; }.chart-center span { margin-top: 3px; color: var(--muted); font-size: 9px; }
-    .sentiment-list { display: grid; flex: 1; gap: 18px; }.sentiment-label { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; color: #66736c; font-size: 11px; }.sentiment-label strong { margin-left: auto; color: var(--ink); font-size: 11px; }
-    .swatch { width: 7px; height: 7px; border-radius: 2px; }.positive-swatch { background: #48a77b; }.neutral-swatch { background: #d3a250; }.negative-swatch { background: #d3756c; }
-    .track { height: 5px; overflow: hidden; background: #eff2ef; border-radius: 10px; }.fill { display: block; height: 100%; min-width: 2px; border-radius: inherit; }.positive-fill { background: #48a77b; }.neutral-fill { background: #d3a250; }.negative-fill { background: #d3756c; }
-    .insight-panel { padding: 21px; background: #fbfcfa; }.insight-symbol { display: grid; width: 35px; height: 35px; place-items: center; margin-bottom: 18px; color: #8c692b; background: #f7f0df; border-radius: 9px; }.insight-symbol .material-icons { font-size: 19px; }
-    .insight-panel .eyebrow { margin-bottom: 7px; font-size: 9px; }.insight-panel h2 { font-size: 17px; }.insight-panel > p { margin: 9px 0 17px; color: var(--muted); font-size: 11px; }
-    .text-action { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 0 0; color: var(--green-dark); background: none; border: 0; border-top: 1px solid var(--line); text-align: left; font-size: 11px; font-weight: 700; }.text-action .material-icons { font-size: 17px; }.text-action .arrow { margin-left: auto; }.text-action:disabled { opacity: .6; }
-    .summary { margin-top: 15px; padding: 12px; background: #f2f7f3; border-radius: 5px; }.summary h3 { margin: 0; font-size: 11px; }.summary p { margin: 5px 0 0; color: #66736c; font-size: 11px; }
-    .empty-panel { padding: 54px 20px; text-align: center; }.empty-icon { display: grid; width: 54px; height: 54px; place-items: center; margin: 0 auto 17px; color: var(--green); background: var(--green-soft); border-radius: 15px; }.empty-icon .material-icons { font-size: 26px; }.empty-panel h2 { font-size: 17px; }.empty-panel > p { max-width: 380px; margin: 8px auto 20px; color: var(--muted); font-size: 12px; }.empty-actions { display: flex; justify-content: center; gap: 10px; }
-    @media (max-width: 950px) { .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }.content-grid { grid-template-columns: 1fr; } }
-    @media (max-width: 500px) { .toolbar, .toolbar-actions { align-items: stretch; flex-direction: column; }.product-select { width: 100%; }.metric-grid { gap: 9px; }.metric-card { padding: 13px; }.metric-top { align-items: flex-start; }.metric-icon { width: 28px; height: 28px; }.metric-card > strong { font-size: 23px; }.distribution-body { flex-direction: column; padding: 22px; }.sentiment-list { width: 100%; }.empty-actions { align-items: stretch; flex-direction: column; } }
+    :host { display: block; min-width: 0; }
+    .product-select { width: 220px; }
+    .verdict { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; padding: 18px 22px; border-left: 4px solid var(--neu); }
+    .verdict.pos { border-left-color: var(--pos); } .verdict.neg { border-left-color: var(--neg); }
+    .verdict-icon { display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto; border-radius: 12px; color: var(--neu-text); background: var(--neu-soft); }
+    .verdict.pos .verdict-icon { color: var(--pos); background: var(--pos-soft); } .verdict.neg .verdict-icon { color: var(--neg); background: var(--neg-soft); }
+    .verdict-icon .icon { font-size: 26px; }
+    .verdict-text { flex: 1; } .verdict-text p { margin-top: 2px; color: var(--text-2); }
+    .net-score { display: grid; justify-items: end; padding-left: 20px; border-left: 1px solid var(--border); }
+    .net-value { font-size: 26px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+    .verdict.pos .net-value { color: var(--pos-text); } .verdict.neg .net-value { color: var(--neg-text); }
+    .net-label { color: var(--text-3); font-size: 12.5px; }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); align-items: start; gap: 16px; margin-bottom: 16px; }
+    .distribution { display: flex; align-items: center; gap: 32px; }
+    .chart-box { position: relative; width: 190px; height: 190px; flex: 0 0 190px; }
+    .chart-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
+    .chart-center strong { font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+    .chart-center span { color: var(--text-3); font-size: 13px; }
+    .legend { display: grid; flex: 1; gap: 14px; margin: 0; padding: 0; list-style: none; }
+    .legend li { display: grid; grid-template-columns: auto 1fr auto 44px; align-items: center; gap: 10px; color: var(--text-2); }
+    .legend li .muted { text-align: right; font-size: 13px; }
+    .neg-list { margin: 0; padding: 4px 0; list-style: none; }
+    .neg-list li { padding: 12px 20px; border-bottom: 1px solid var(--border); }
+    .neg-list li:last-child { border-bottom: 0; }
+    .neg-meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12.5px; }
+    .summary-zone { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .summary { width: 100%; }
+    .summary-title { display: flex; align-items: center; gap: 6px; color: var(--brand-600); font-size: 13px; font-weight: 600; }
+    .summary-title .icon { font-size: 18px; }
+    .summary p { margin-top: 4px; color: var(--text-2); }
+    .empty-state.compact { padding: 32px 20px; }
+    .empty-icon.error { color: var(--neg); background: var(--neg-soft); }
+    .products .num { text-align: right; } .products .bar-col { width: 34%; min-width: 160px; }
+    .products tr.selected { background: var(--brand-50); }
+    .products .tag { margin-left: 8px; } .tag.warn { color: #8a5a12; background: var(--warn-soft); }
+    .pos-text { color: var(--pos-text); } .neg-text { color: var(--neg-text); }
+    .chevron { color: var(--text-4); font-size: 18px; }
+    .onboarding { padding: 32px; }
+    .onboarding-intro { display: grid; justify-items: center; gap: 8px; max-width: 520px; margin: 0 auto 28px; text-align: center; }
+    .onboarding-intro p { color: var(--text-3); }
+    .onboarding .empty-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 4px; color: var(--brand); background: var(--brand-50); border-radius: 12px; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0; padding: 0; list-style: none; }
+    .steps li { display: flex; gap: 12px; padding: 18px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r); }
+    .steps p { margin: 4px 0 12px; color: var(--text-3); font-size: 13px; }
+    .step-num { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 auto; color: var(--brand-600); background: var(--brand-100); border-radius: 50%; font-size: 13px; font-weight: 700; }
+    .skeletons { display: grid; gap: 16px; } .skeletons .kpi-grid, .skeletons .grid-2 { margin: 0; }
+    @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .steps { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) {
+      .verdict { flex-wrap: wrap; } .net-score { justify-items: start; padding: 12px 0 0; border: 0; border-top: 1px solid var(--border); width: 100%; }
+      .distribution { flex-direction: column; } .legend { width: 100%; } .product-select { width: 100%; }
+    }
   `],
 })
 export class DashboardPageComponent implements OnInit {
   private readonly api = inject(DashboardApi);
   private readonly reviews = inject(ReviewApi);
   readonly products = signal<string[]>([]);
+  readonly productRows = signal<ProductRow[]>([]);
   readonly product = signal('');
   readonly stats = signal<DashboardStats | null>(null);
+  readonly negatives = signal<Review[]>([]);
   readonly loadError = signal(false);
   readonly summary = signal<SummaryResponse | null>(null);
   readonly summarizing = signal(false);
 
+  readonly fmt = formatNumber;
+  readonly abs = Math.abs;
+  readonly relative = (iso?: string) => formatRelative(iso);
   readonly exportUrl = computed(() => this.reviews.exportUrl(this.product()));
+  readonly verdict = computed(() => { const s = this.stats(); return s && s.total ? verdictOf(s) : null; });
+  readonly net = computed(() => { const s = this.stats(); return s ? netScore(s) : 0; });
   readonly chartData = computed<ChartConfiguration<'doughnut'>['data']>(() => {
     const s = this.stats();
     return {
       labels: ['Positif', 'Neutre', 'Négatif'],
-      datasets: [{
-        data: s ? [s.positive, s.neutral, s.negative] : [0, 0, 0],
-        backgroundColor: SENTIMENT_COLORS,
-        borderColor: '#fff',
-        borderWidth: 2,
-      }],
+      datasets: [{ data: s ? [s.positive, s.neutral, s.negative] : [0, 0, 0], backgroundColor: SENTIMENT_COLORS, borderColor: '#fff', borderWidth: 3, hoverOffset: 4 }],
     };
   });
   readonly chartOptions: ChartConfiguration<'doughnut'>['options'] = {
     responsive: true,
     maintainAspectRatio: false,
-    cutout: '62%',
-    plugins: { legend: { display: false } },
+    cutout: '74%',
+    plugins: { legend: { display: false }, tooltip: { padding: 10, cornerRadius: 8, displayColors: true } },
   };
 
   ngOnInit() { this.refresh(); }
 
   refresh() {
-    this.api.products().subscribe({ next: (items) => this.products.set(items), error: () => {} });
     this.loadStats();
+    this.api.products().subscribe({
+      next: (items) => { this.products.set(items); this.loadProductRows(items); },
+      error: () => {},
+    });
   }
 
-  selectProduct(event: Event) {
-    this.product.set((event.target as HTMLSelectElement).value);
+  selectProduct(value: string) {
+    this.product.set(value);
     this.summary.set(null);
     this.loadStats();
   }
@@ -160,6 +284,23 @@ export class DashboardPageComponent implements OnInit {
     this.api.stats(this.product()).subscribe({
       next: (result) => this.stats.set(result),
       error: () => this.loadError.set(true),
+    });
+    this.reviews.list(this.product(), 'NEGATIVE', 0, 5).subscribe({
+      next: (page) => this.negatives.set(page.content),
+      error: () => this.negatives.set([]),
+    });
+  }
+
+  /** Une requête de statistiques par produit, triées : les plus critiqués d'abord. */
+  private loadProductRows(items: string[]) {
+    if (!items.length) { this.productRows.set([]); return; }
+    forkJoin(items.slice(0, MAX_PRODUCTS).map((p) =>
+      this.api.stats(p).pipe(map((stats) => ({ product: p, stats })), catchError(() => of(null)))
+    )).subscribe((rows) => {
+      this.productRows.set(
+        rows.filter((r): r is ProductRow => !!r && r.stats.total > 0)
+          .sort((a, b) => b.stats.negativePct - a.stats.negativePct || b.stats.total - a.stats.total)
+      );
     });
   }
 }

@@ -65,6 +65,20 @@ describe('ImportPageComponent', () => {
     expect(cmp.loading()).toBeFalse();
   });
 
+  it('guide en 3 étapes : fichier → vérification (aperçu) → analyse', async () => {
+    api.importCsv.and.returnValue(of({ total: 8, analyzed: 8, cacheHits: 0, errors: [] }));
+    const cmp = TestBed.createComponent(ImportPageComponent).componentInstance;
+    expect(cmp.step()).toBe(1);
+    await cmp.selectFile(csvFile(8));
+    expect(cmp.step()).toBe(2);
+    expect(cmp.previewRows().length).toBe(5);
+    expect(api.importCsv).not.toHaveBeenCalled(); // rien n'est envoyé avant confirmation
+    await cmp.upload();
+    expect(cmp.step()).toBe(3);
+    await cmp.selectFile(null);
+    expect(cmp.step()).toBe(1);
+  });
+
   it('refuse un fichier sans avis', async () => {
     const cmp = TestBed.createComponent(ImportPageComponent).componentInstance;
     await cmp.selectFile(new File(['text,product\n'], 'vide.csv'));

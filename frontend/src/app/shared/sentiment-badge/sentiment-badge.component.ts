@@ -1,25 +1,32 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { Sentiment } from '../../core/models/models';
+import { SENTIMENT_CLASS, SENTIMENT_LABEL } from '../../core/format';
 
-const TEXT: Record<Sentiment, string> = {
-  POSITIVE: 'Positif',
-  NEUTRAL: 'Neutre',
-  NEGATIVE: 'Négatif',
+const ICON: Record<Sentiment, string> = {
+  POSITIVE: 'sentiment_satisfied',
+  NEUTRAL: 'sentiment_neutral',
+  NEGATIVE: 'sentiment_dissatisfied',
 };
 
 @Component({
   selector: 'app-sentiment-badge',
   standalone: true,
-  template: `<span class="badge" [class]="label().toLowerCase()">{{ text() }}</span>`,
+  template: `<span class="badge" [class]="'badge ' + tone() + (size() === 'lg' ? ' lg' : '')"><span class="icon fill">{{ icon() }}</span>{{ text() }}</span>`,
   styles: [`
-    .badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 4px; font-weight: 700; font-size: 9px; line-height: 1; white-space: nowrap; }
-    .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-    .positive { color: #287453; background: #e8f4ed; }
-    .neutral { color: #906a2c; background: #f8f1e3; }
-    .negative { color: #ac5149; background: #faeeec; }
+    :host { display: inline-flex; }
+    .badge { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 9px 0 6px; border-radius: 99px; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+    .badge .icon { font-size: 16px; }
+    .badge.lg { height: 32px; padding: 0 14px 0 10px; font-size: 15px; gap: 6px; }
+    .badge.lg .icon { font-size: 20px; }
+    .pos { color: var(--pos-text); background: var(--pos-soft); }
+    .neu { color: var(--neu-text); background: var(--neu-soft); }
+    .neg { color: var(--neg-text); background: var(--neg-soft); }
   `],
 })
 export class SentimentBadgeComponent {
   label = input.required<Sentiment>();
-  text() { return TEXT[this.label()]; }
+  size = input<'md' | 'lg'>('md');
+  readonly text = computed(() => SENTIMENT_LABEL[this.label()]);
+  readonly tone = computed(() => SENTIMENT_CLASS[this.label()]);
+  readonly icon = computed(() => ICON[this.label()]);
 }

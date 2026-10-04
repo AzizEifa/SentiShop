@@ -36,6 +36,7 @@ export interface Review {
   product: string | null;
   label: Sentiment;
   score: number;
+  createdAt?: string;
 }
 
 export interface Page<T> {
