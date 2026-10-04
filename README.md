@@ -22,8 +22,17 @@ Navigateur ──▶ Angular :4200 ──/api (proxy)──▶ Spring Boot :8080
 
 | Rôle | Comment l'obtenir | Ce qu'il peut faire |
 |---|---|---|
-| **Client** | Inscription libre sur `/register` | Écrire un avis (produit, note ★, texte) et consulter **ses** avis dans `/espace`. Le sentiment détecté reste interne à la boutique. |
-| **Administrateur** | Créé au démarrage (impossible par l'inscription) | Tout le back-office : tableau de bord, avis, analyse, import, export, comparaison, utilisateurs. Reçoit **en temps réel** chaque avis déposé par un client. |
+| **Client** | Inscription libre sur `/register` | Écrire un avis sur un produit du catalogue (note ★, texte avec émojis, jusqu'à 3 photos), puis **modifier ou supprimer ses propres avis** dans `/espace`. Gérer son profil (nom, email, mot de passe, photo). Le sentiment détecté reste interne à la boutique. |
+| **Administrateur** | Créé au démarrage (impossible par l'inscription) | Tout le back-office : tableau de bord, avis (détail, photos, **suppression**), analyse, import, export, comparaison, **catalogue produits** (ajout, modification, suppression, image), **utilisateurs** (rôle, suppression). Reçoit **en temps réel** chaque avis déposé ou modifié par un client. |
+
+Garde-fous : un client n'accède qu'à ses propres avis (un avis d'un autre client répond « introuvable ») ;
+un administrateur ne peut ni modifier son propre rôle ni supprimer son compte, et le dernier administrateur
+est protégé. Un texte d'avis modifié est **réanalysé** ; un nom de produit ou de client modifié est répercuté
+sur les avis.
+
+**Images** (produits, avis, photos de profil) : JPG, PNG, WEBP ou GIF, 3 Mo max, type vérifié sur le contenu
+réel du fichier (pas seulement l'extension). Stockées dans `sentiment-analysis/uploads/` (ignoré par Git) sous
+un nom aléatoire et servies sur `/uploads/…`.
 
 Les droits sont appliqués **par le backend** (Spring Security, jetons JWT signés) et pas seulement masqués dans
 l'interface : un client qui appelle une route admin reçoit `403`, une requête sans jeton `401`.
@@ -66,22 +75,26 @@ SentiShop/
 │           ├── layouts/           back-office admin · espace client
 │           ├── features/          une page par fonctionnalité
 │           │   ├── auth/          connexion, inscription
-│           │   ├── client/        espace client : écrire un avis, mes avis
-│           │   ├── users/         administration des comptes
+│           │   ├── client/        espace client : écrire, modifier, supprimer ses avis (émojis, photos)
+│           │   ├── products/      catalogue produits avec images (admin)
+│           │   ├── profile/       mon profil : photo, nom, email, mot de passe
+│           │   ├── users/         administration des comptes (rôle, suppression)
 │           │   ├── dashboard/     F3 · B1 · B2   vue d'ensemble, camembert, résumé, export
 │           │   ├── analyze/       F1 · F4        analyser un avis
 │           │   ├── import/        F2             importer un CSV
 │           │   ├── reviews/       B2             liste filtrable + export
 │           │   └── compare/       B3             multilingue vs anglais seul
-│           └── shared/            badge de sentiment, étoiles, cloche, alertes, menu utilisateur
+│           └── shared/            badge, étoiles, avatar, émojis, confirmation, visionneuse, cloche, alertes, menu
 │
 └── sentiment-analysis/        ── API Spring Boot
     ├── pom.xml · mvnw
     ├── .env.example           modèle du fichier .env (HF_TOKEN=), à copier en .env
     └── src/
         ├── main/java/com/shop/sentiment_analysis/
-        │   ├── auth/          comptes, JWT, SecurityConfig (droits), inscription / connexion
-        │   ├── me/            espace client : déposer et lister ses avis
+        │   ├── auth/          comptes, JWT, SecurityConfig (droits), connexion, profil, administration des comptes
+        │   ├── me/            espace client (avis + photos) ; modération des avis (admin)
+        │   ├── product/       catalogue produits (CRUD admin, statistiques par produit)
+        │   ├── storage/       stockage et contrôle des images envoyées
         │   ├── notify/        WebSocket des notifications temps réel
         │   ├── controller/    ReviewController, DashboardController
         │   ├── service/       SentimentService (cache), CsvImportService, DashboardService, ExportService
@@ -189,8 +202,8 @@ Aucun test n'appelle la vraie API (aucun crédit consommé).
 
 | Côté | Outils | Ce qui est vérifié |
 |---|---|---|
-| Back (42) | JUnit 5, Mockito, MockWebServer, Spring Security Test | 1er appel → HF appelé ; **2e appel identique → HF non appelé** (`cached=true`) ; avis identiques comptés séparément ; erreurs 401 / 429 / 503 (retry) ; résumé BART ; comparaison B3 ; migration ; **droits par rôle** (401 / 403), inscription, connexion, avis client, notification WebSocket |
-| Front (74) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 ; verdict et score net ; historique d'analyse ; étapes de l'import ; état de l'API ; session et gardes par rôle ; connexion / inscription ; dépôt d'avis ; WebSocket (reconnexion) |
+| Back (52) | JUnit 5, Mockito, MockWebServer, Spring Security Test | 1er appel → HF appelé ; **2e appel identique → HF non appelé** (`cached=true`) ; avis identiques comptés séparément ; erreurs 401 / 429 / 503 (retry) ; résumé BART ; comparaison B3 ; migration ; **droits par rôle** (401 / 403), inscription, connexion, avis client, notification WebSocket ; produits avec image ; modification / suppression d'avis (propriétaire uniquement) ; photos et émojis ; profil ; garde-fous admin |
+| Front (87) | Jasmine, Karma | appels REST ; lecture CSV (Excel, arabe, guillemets, limites) ; import par lots ; dashboard (pourcentages, état vide, erreurs, export) ; comparaison B3 ; verdict et score net ; historique d'analyse ; étapes de l'import ; état de l'API ; session et gardes par rôle ; connexion / inscription ; dépôt, modification et suppression d'avis ; émojis et photos ; catalogue ; profil ; WebSocket (reconnexion) |
 
 ## Sécurité
 

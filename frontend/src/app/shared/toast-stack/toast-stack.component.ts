@@ -22,6 +22,7 @@ import { StarsComponent } from '../stars/stars.component';
             </div>
             <p class="who">{{ t.event.authorName ?? 'Un client' }} · {{ t.event.product }}</p>
             <p class="excerpt" dir="auto">« {{ t.event.text }} »</p>
+            @if (t.event.imageUrls.length) { <div class="thumbs">@for (u of t.event.imageUrls; track u) { <img class="mini" [src]="u" alt="" /> }</div> }
             <button class="link-btn" type="button" (click)="view(t.key, t.event)">Voir l’avis<span class="icon">arrow_forward</span></button>
           </div>
           <button class="close" type="button" aria-label="Fermer" (click)="n.dismiss(t.key)"><span class="icon">close</span></button>
@@ -43,6 +44,7 @@ import { StarsComponent } from '../stars/stars.component';
     .who { color: var(--text-3); font-size: 12.5px; }
     .excerpt { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text-2); font-size: 13px; }
     .content .link-btn { justify-self: start; margin-top: 4px; }
+    .mini { width: 36px; height: 36px; margin-top: 4px; border-radius: 7px; object-fit: cover; }
     .close { align-self: flex-start; display: grid; place-items: center; width: 26px; height: 26px; color: var(--text-4); background: none; border: 0; border-radius: 6px; }
     .close:hover { color: var(--text); background: var(--surface-2); } .close .icon { font-size: 18px; }
     .timer { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--neu); transform-origin: left; animation: countdown 7s linear forwards; }

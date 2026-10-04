@@ -15,7 +15,8 @@ import { UserMenuComponent } from '../../shared/user-menu/user-menu.component';
           <span>SentiShop</span>
         </a>
         <nav class="nav" aria-label="Navigation">
-          <a routerLink="/espace" routerLinkActive="active"><span class="icon">rate_review</span>Mes avis</a>
+          <a routerLink="/espace" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }"><span class="icon">rate_review</span>Mes avis</a>
+          <a routerLink="/espace/profil" routerLinkActive="active"><span class="icon">manage_accounts</span><span class="nav-text">Mon profil</span></a>
         </nav>
         <app-user-menu />
       </div>
@@ -36,7 +37,7 @@ import { UserMenuComponent } from '../../shared/user-menu/user-menu.component';
     .nav a:hover { background: var(--surface-2); } .nav a.active { color: var(--brand-600); background: var(--brand-50); }
     .content { flex: 1; width: min(100%, 1120px); margin: 0 auto; padding: 32px 24px 56px; }
     .footer { padding: 20px; color: var(--text-4); border-top: 1px solid var(--border); font-size: 12.5px; text-align: center; }
-    @media (max-width: 600px) { .header-inner, .content { padding-left: 16px; padding-right: 16px; } .nav a { padding: 0 8px; } }
+    @media (max-width: 600px) { .header-inner, .content { padding-left: 16px; padding-right: 16px; } .nav a { padding: 0 8px; } .nav-text { display: none; } }
   `],
 })
 export class ClientLayoutComponent {}

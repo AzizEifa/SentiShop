@@ -40,6 +40,8 @@ export interface Review {
   /** Client auteur de l'avis (absent pour un avis importé ou analysé par un admin). */
   authorName?: string | null;
   rating?: number | null;
+  imageUrls?: string[];
+  updatedAt?: string | null;
 }
 
 export interface Page<T> {
@@ -68,6 +70,7 @@ export interface User {
   email: string;
   fullName: string;
   role: Role;
+  avatarUrl?: string | null;
   createdAt: string;
 }
 
@@ -83,7 +86,43 @@ export interface MyReview {
   product: string;
   rating: number;
   text: string;
+  imageUrls: string[];
   createdAt: string;
+  updatedAt?: string | null;
+}
+
+/** Formulaire d'avis client (création ou modification). */
+export interface ReviewForm {
+  product: string;
+  rating: number;
+  text: string;
+  /** Modification : photos déjà publiées à conserver. */
+  keepImages?: string[];
+}
+
+/* ---------- Catalogue ---------- */
+export interface ProductStats {
+  reviewCount: number;
+  averageRating: number | null;
+  positivePct: number;
+  negativePct: number;
+}
+
+export interface Product {
+  id: number;
+  name: string;
+  description: string | null;
+  category: string | null;
+  imageUrl: string | null;
+  createdAt: string;
+  stats: ProductStats;
+}
+
+export interface ProductForm {
+  name: string;
+  description: string;
+  category: string;
+  removeImage: boolean;
 }
 
 export interface UserRow extends User {
@@ -92,7 +131,7 @@ export interface UserRow extends User {
 
 /** Notification temps réel reçue par les administrateurs. */
 export interface ReviewEvent {
-  type: 'review.created';
+  type: 'review.created' | 'review.updated' | 'review.deleted';
   id: number;
   text: string;
   product: string;
@@ -100,6 +139,7 @@ export interface ReviewEvent {
   score: number;
   rating: number | null;
   authorName: string | null;
+  imageUrls: string[];
   createdAt: string;
 }
 

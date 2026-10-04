@@ -141,7 +141,8 @@ export class AdminLayoutComponent implements OnInit, OnDestroy {
     { label: 'Laboratoire', items: [
       { path: '/compare', label: 'Comparer les modèles', icon: 'compare_arrows' },
     ] },
-    { label: 'Administration', items: [
+    { label: 'Gestion', items: [
+      { path: '/products', label: 'Produits', icon: 'inventory_2' },
       { path: '/users', label: 'Utilisateurs', icon: 'group' },
     ] },
   ];

@@ -53,6 +53,20 @@ export class AuthService {
     this.router.navigate(['/login'], reason === 'expired' ? { queryParams: { reason } } : {});
   }
 
+  /** Profil modifié : nouveau jeton (nom / email changés), même mode de conservation qu'à la connexion. */
+  replaceSession(res: AuthResponse) {
+    this.store(res, isRemembered());
+  }
+
+  /** Profil modifié sans nouveau jeton (photo). */
+  updateUser(user: User) {
+    const s = this.session();
+    if (!s) return;
+    const next = { ...s, user };
+    writeSession(next, isRemembered());
+    this.session.set(next);
+  }
+
   /** Page d'accueil selon le rôle. */
   homeUrl(role: Role | undefined = this.user()?.role): string {
     return role === 'ADMIN' ? '/dashboard' : '/espace';
@@ -90,6 +104,10 @@ function readSession(): Session | null {
   } catch {
     return null;
   }
+}
+
+function isRemembered(): boolean {
+  try { return localStorage.getItem(STORAGE_KEY) !== null; } catch { return false; }
 }
 
 function writeSession(session: Session | null, remember: boolean) {

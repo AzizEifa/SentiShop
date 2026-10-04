@@ -32,7 +32,7 @@ import { StarsComponent } from '../stars/stars.component';
                 <button type="button" (click)="openReviews(item.label)">
                   <span class="dot" [class]="'dot ' + tone(item.label)"></span>
                   <span class="body">
-                    <span class="title"><strong>{{ item.authorName ?? 'Un client' }}</strong> a publié un avis {{ label(item.label).toLowerCase() }}</span>
+                    <span class="title"><strong>{{ item.authorName ?? 'Un client' }}</strong> {{ item.type === 'review.updated' ? 'a modifié son avis' : 'a publié un avis' }} <span [class]="'sent ' + tone(item.label)">{{ label(item.label).toLowerCase() }}</span>@if (item.imageUrls.length) { <span class="icon photo-ic" title="Avec photos">photo_camera</span> }</span>
                     <span class="excerpt" dir="auto">« {{ item.text }} »</span>
                     <span class="meta">
                       @if (item.rating) { <app-stars [value]="item.rating" /> }
@@ -71,6 +71,8 @@ import { StarsComponent } from '../stars/stars.component';
     li .dot { margin-top: 6px; }
     .body { display: grid; gap: 4px; min-width: 0; }
     .title { font-size: 13.5px; } .title strong { font-weight: 600; }
+    .sent { font-weight: 600; } .sent.pos { color: var(--pos-text); } .sent.neg { color: var(--neg-text); } .sent.neu { color: var(--neu-text); }
+    .photo-ic { margin-left: 4px; color: var(--text-4); font-size: 15px; vertical-align: -3px; }
     .excerpt { overflow: hidden; color: var(--text-2); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
     .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .empty { display: grid; justify-items: center; gap: 8px; padding: 32px 24px; color: var(--text-3); text-align: center; font-size: 13.5px; }

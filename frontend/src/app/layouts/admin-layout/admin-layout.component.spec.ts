@@ -15,12 +15,12 @@ describe('AdminLayoutComponent (back-office)', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  it('affiche les 6 pages dans la navigation', () => {
+  it('affiche les 7 pages dans la navigation', () => {
     const fixture = TestBed.createComponent(AdminLayoutComponent);
     fixture.detectChanges();
     const links = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('.sidebar nav a'))
       .map((a) => a.getAttribute('href'));
-    expect(links).toEqual(['/dashboard', '/reviews', '/analyze', '/import', '/compare', '/users']);
+    expect(links).toEqual(['/dashboard', '/reviews', '/analyze', '/import', '/compare', '/products', '/users']);
   });
 
   it("indique si l'API répond", fakeAsync(() => {

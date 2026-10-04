@@ -20,7 +20,7 @@ class FakeSocket {
 
 const event = (id: number): ReviewEvent => ({
   type: 'review.created', id, text: 'Colis abîmé', product: 'Casque', label: 'NEGATIVE',
-  score: 0.9, rating: 2, authorName: 'Sara', createdAt: new Date().toISOString(),
+  score: 0.9, rating: 2, authorName: 'Sara', imageUrls: [], createdAt: new Date().toISOString(),
 });
 
 describe('NotificationService (temps réel)', () => {
@@ -61,6 +61,18 @@ describe('NotificationService (temps réel)', () => {
     expect(service.toasts().length).toBe(0); // les alertes disparaissent seules
     service.disconnect();
   }));
+
+  it('avis modifié : notification sans alerte ; avis supprimé : rafraîchissement seul', () => {
+    const received: string[] = [];
+    service.reviews$.subscribe((e) => received.push(e.type));
+    service.connect();
+    FakeSocket.last.receive({ ...event(1), type: 'review.updated' });
+    FakeSocket.last.receive({ ...event(1), type: 'review.deleted' });
+    expect(service.items().length).toBe(1);
+    expect(service.toasts().length).toBe(0);
+    expect(received).toEqual(['review.updated', 'review.deleted']);
+    service.disconnect();
+  });
 
   it('coupure : reconnexion automatique avec délai croissant', fakeAsync(() => {
     service.connect();

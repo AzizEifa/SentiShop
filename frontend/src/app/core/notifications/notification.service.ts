@@ -81,10 +81,13 @@ export class NotificationService {
     if (msg.type === 'ready') {
       this.connected.set(true);
       this.attempt = 0;
-    } else if (msg.type === 'review.created') {
+    } else if (msg.type === 'review.created' || msg.type === 'review.updated' || msg.type === 'review.deleted') {
       const event = msg as unknown as ReviewEvent;
-      this.items.update((list) => [{ ...event, read: false, receivedAt: Date.now() }, ...list].slice(0, MAX_ITEMS));
-      this.pushToast(event);
+      // nouvel avis : notification + alerte ; avis modifié : notification discrète ; suppression : rafraîchissement seul
+      if (event.type !== 'review.deleted') {
+        this.items.update((list) => [{ ...event, read: false, receivedAt: Date.now() }, ...list].slice(0, MAX_ITEMS));
+      }
+      if (event.type === 'review.created') this.pushToast(event);
       this.reviews$.next(event);
     }
   }

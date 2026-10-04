@@ -35,6 +35,11 @@ export const routes: Routes = [
         title: 'Mes avis · SentiShop',
         loadComponent: () => import('./features/client/client-space.component').then((m) => m.ClientSpaceComponent),
       },
+      {
+        path: 'profil',
+        title: 'Mon profil · SentiShop',
+        loadComponent: () => import('./features/profile/profile-page.component').then((m) => m.ProfilePageComponent),
+      },
     ],
   },
 
@@ -81,9 +86,21 @@ export const routes: Routes = [
           import('./features/compare/compare-page/compare-page.component').then((m) => m.ComparePageComponent),
       },
       {
+        path: 'products',
+        title: 'Produits · SentiShop',
+        data: { section: 'Gestion', title: 'Produits' } satisfies PageData,
+        loadComponent: () => import('./features/products/products-page.component').then((m) => m.ProductsPageComponent),
+      },
+      {
+        path: 'profile',
+        title: 'Mon profil · SentiShop',
+        data: { section: 'Compte', title: 'Mon profil' } satisfies PageData,
+        loadComponent: () => import('./features/profile/profile-page.component').then((m) => m.ProfilePageComponent),
+      },
+      {
         path: 'users',
         title: 'Utilisateurs · SentiShop',
-        data: { section: 'Administration', title: 'Utilisateurs' } satisfies PageData,
+        data: { section: 'Gestion', title: 'Utilisateurs' } satisfies PageData,
         loadComponent: () => import('./features/users/users-page.component').then((m) => m.UsersPageComponent),
       },
     ],

@@ -7,6 +7,10 @@ import { ReviewApi } from '../../../core/api/review-api.service';
 import { Review, Sentiment } from '../../../core/models/models';
 import { SENTIMENT_CLASS, formatNumber, formatRelative } from '../../../core/format';
 import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
+import { ConfirmService } from '../../../shared/confirm-dialog/confirm-dialog.component';
+import { LightboxService } from '../../../shared/lightbox/lightbox.component';
+import { AdminApi } from '../../../core/api/admin-api.service';
+import { MatSnackBar } from '@angular/material/snack-bar';
 import { StarsComponent } from '../../../shared/stars/stars.component';
 import { NotificationService } from '../../../core/notifications/notification.service';
 
@@ -58,9 +62,10 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
               }
             } @else {
               @for (r of rows(); track r.id) {
-                <tr [class.dim]="loading()" [class.fresh]="fresh().has(r.id)">
+                <tr class="clickable" [class.dim]="loading()" [class.fresh]="fresh().has(r.id)" [class.selected]="detail()?.id === r.id" (click)="open(r)" tabindex="0" (keydown.enter)="open(r)">
                   <td class="text-col">
-                    <p class="review-text" dir="auto" [class.expanded]="expanded().has(r.id)" (click)="toggle(r.id)" [title]="expanded().has(r.id) ? 'Réduire' : 'Afficher tout le texte'">{{ r.text }}</p>
+                    <p class="review-text" dir="auto">{{ r.text }}</p>
+                    @if (r.imageUrls?.length) { <span class="has-photos"><span class="icon">photo_library</span>{{ r.imageUrls!.length }} photo{{ r.imageUrls!.length > 1 ? 's' : '' }}</span> }
                   </td>
                   <td class="author">
                     @if (r.authorName) { <span class="author-name">{{ r.authorName }}</span>@if (r.rating) { <app-stars [value]="r.rating" /> } }
@@ -105,12 +110,52 @@ const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
         </footer>
       }
     </section>
+
+    @if (detail(); as d) {
+      <div class="drawer-backdrop" (click)="detail.set(null)"></div>
+      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="review-title" (keydown.escape)="closeOnEscape()">
+        <header class="drawer-header">
+          <div><h2 id="review-title">Détail de l’avis</h2><p class="muted small">#{{ d.id }} · {{ relative(d.createdAt) }}@if (d.updatedAt) { · modifié {{ relative(d.updatedAt) }} }</p></div>
+          <button class="btn btn-ghost btn-icon" type="button" aria-label="Fermer" (click)="detail.set(null)"><span class="icon">close</span></button>
+        </header>
+        <div class="drawer-body detail">
+          <div class="detail-head">
+            <app-sentiment-badge [label]="d.label" size="lg" />
+            <span class="confidence tabular">{{ d.score | percent: '1.0-0' }} de confiance</span>
+          </div>
+          <blockquote dir="auto">{{ d.text }}</blockquote>
+          @if (d.imageUrls?.length) {
+            <div class="gallery">@for (u of d.imageUrls!; track u; let i = $index) { <button class="thumb lg" type="button" (click)="lightbox.open(d.imageUrls!, i)" aria-label="Agrandir la photo"><img [src]="u" alt="" /></button> }</div>
+          }
+          <dl class="meta">
+            <dt>Auteur</dt><dd>{{ d.authorName ?? 'Import / analyse administrateur' }}</dd>
+            <dt>Note</dt><dd>@if (d.rating) { <app-stars [value]="d.rating" size="md" /> } @else { <span class="muted">—</span> }</dd>
+            <dt>Produit</dt><dd>@if (d.product) { <span class="tag">{{ d.product }}</span> } @else { <span class="muted">—</span> }</dd>
+            <dt>Date</dt><dd>{{ fullDate(d.createdAt) }}</dd>
+          </dl>
+        </div>
+        <footer class="drawer-footer">
+          <button class="btn btn-ghost spacer danger-text" type="button" (click)="remove(d)"><span class="icon">delete</span>Supprimer l’avis</button>
+          <button class="btn btn-secondary" type="button" (click)="detail.set(null)">Fermer</button>
+        </footer>
+      </aside>
+    }
   `,
   styles: [`
     .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     .search { width: 260px; }
     .text-col { min-width: 320px; max-width: 560px; }
-    .text-col .review-text { cursor: pointer; }
+    tr.selected { background: var(--brand-50); }
+    .has-photos { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; color: var(--text-3); font-size: 12px; } .has-photos .icon { font-size: 15px; }
+    .small { font-size: 12.5px; }
+    .detail { display: grid; gap: 18px; align-content: start; }
+    .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .confidence { color: var(--text-3); font-size: 13px; }
+    blockquote { margin: 0; padding: 14px 16px; background: var(--surface-2); border-left: 3px solid var(--border-strong); border-radius: 0 10px 10px 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; unicode-bidi: plaintext; }
+    .gallery { display: flex; gap: 10px; flex-wrap: wrap; } .thumb.lg { width: 112px; height: 112px; border-radius: 12px; }
+    .meta { display: grid; grid-template-columns: 90px 1fr; gap: 12px 16px; margin: 0; font-size: 14px; }
+    .meta dt { color: var(--text-3); } .meta dd { display: flex; align-items: center; margin: 0; }
+    .danger-text { color: var(--neg-text); }
     .conf-col { width: 150px; }
     .conf { display: grid; grid-template-columns: 1fr 40px; align-items: center; gap: 10px; font-size: 13px; text-align: right; }
     tr.dim { opacity: .55; }
@@ -145,6 +190,12 @@ export class ReviewsPageComponent implements OnInit {
   readonly total = signal(0);
   readonly loading = signal(false);
   readonly expanded = signal(new Set<number>());
+  readonly detail = signal<Review | null>(null);
+  readonly lightbox = inject(LightboxService);
+  private readonly admin = inject(AdminApi);
+  private readonly confirm = inject(ConfirmService);
+  private readonly snack = inject(MatSnackBar);
+  readonly fullDate = (iso?: string) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : '—');
   readonly search$ = new Subject<string>();
 
   readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / this.size())));
@@ -164,9 +215,9 @@ export class ReviewsPageComponent implements OnInit {
     this.fetch();
     // nouvel avis client : la première page se met à jour toute seule
     this.live.reviews$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
-      if (this.page() !== 0) return;
-      this.fresh.update((set) => new Set(set).add(e.id));
-      this.fetch();
+      if (e.type === 'review.deleted' && this.detail()?.id === e.id) this.detail.set(null);
+      if (e.type !== 'review.deleted') this.fresh.update((set) => new Set(set).add(e.id));
+      if (this.page() === 0 || e.type !== 'review.created') this.fetch();
     });
   }
 
@@ -184,6 +235,27 @@ export class ReviewsPageComponent implements OnInit {
   setSize(n: number) { this.size.set(n); this.reload(); }
   goTo(p: number) { this.page.set(p); this.fetch(); }
   clearFilters() { this.product.set(''); this.label.set(''); this.reload(); }
+
+  open(r: Review) { this.detail.set(r); }
+
+  /** Échap ferme seulement la couche du dessus : la photo agrandie d'abord, puis le panneau. */
+  closeOnEscape() {
+    if (!this.lightbox.images().length) this.detail.set(null);
+  }
+
+  async remove(r: Review) {
+    const ok = await this.confirm.ask({
+      title: 'Supprimer cet avis ?',
+      message: r.authorName ? `L’avis de ${r.authorName} sera définitivement supprimé, ainsi que ses photos.` : 'Cet avis sera définitivement supprimé.',
+      confirmLabel: 'Supprimer l’avis',
+    });
+    if (!ok) return;
+    this.admin.deleteReview(r.id).subscribe(() => {
+      this.detail.set(null);
+      this.snack.open('Avis supprimé', 'OK', { duration: 3000 });
+      this.fetch();
+    });
+  }
 
   toggle(id: number) {
     this.expanded.update((set) => { const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); return next; });
