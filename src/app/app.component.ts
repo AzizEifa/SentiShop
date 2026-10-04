@@ -27,6 +27,9 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
           <a routerLink="/import" routerLinkActive="active">
             <span class="material-icons">upload_file</span><span>Importer des avis</span>
           </a>
+          <a routerLink="/compare" routerLinkActive="active">
+            <span class="material-icons">compare_arrows</span><span>Comparer les modèles</span>
+          </a>
         </nav>
 
         <div class="sidebar-bottom">

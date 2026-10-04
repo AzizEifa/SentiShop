@@ -32,5 +32,12 @@ export const routes: Routes = [
         (m) => m.ReviewsPageComponent
       ),
   },
+  {
+    path: 'compare',
+    loadComponent: () =>
+      import('./features/compare/compare-page/compare-page.component').then(
+        (m) => m.ComparePageComponent
+      ),
+  },
   { path: '**', redirectTo: 'dashboard' },
 ];

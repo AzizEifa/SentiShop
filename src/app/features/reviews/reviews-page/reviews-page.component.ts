@@ -17,7 +17,7 @@ import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentime
   template: `
     <header class="page-heading">
       <div><span class="eyebrow">BIBLIOTHÈQUE CLIENT</span><h1>Avis clients</h1><p>Parcourez et filtrez les retours analysés.</p></div>
-      <span class="review-count"><span class="material-icons">forum</span>{{ total() }} avis</span>
+      <div class="heading-actions"><span class="review-count"><span class="material-icons">forum</span>{{ total() }} avis</span><a class="secondary-action" [href]="exportUrl()" download="avis.csv"><span class="material-icons">download</span>Exporter CSV</a></div>
     </header>
 
     <section class="filters panel">
@@ -51,7 +51,7 @@ import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentime
   `,
   styles: [`
     :host { display: block; }
-    .review-count { display: flex; align-items: center; gap: 7px; padding: 8px 11px; color: #637168; background: #fff; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; font-weight: 600; }.review-count .material-icons { color: var(--green); font-size: 17px; }
+    .heading-actions { display: flex; gap: 10px; align-items: center; }.review-count { display: flex; align-items: center; gap: 7px; padding: 8px 11px; color: #637168; background: #fff; border: 1px solid var(--line); border-radius: 5px; font-size: 11px; font-weight: 600; }.review-count .material-icons { color: var(--green); font-size: 17px; }
     .filters { display: flex; align-items: center; gap: 13px; padding: 15px 17px 2px; margin-bottom: 15px; }.filter-title { display: flex; align-items: center; gap: 7px; margin: 0 4px 13px 0; color: #66736c; font-size: 11px; }.filter-title .material-icons { font-size: 17px; }
     .filter-product { max-width: 250px; }.filter-sentiment { max-width: 210px; }.reset-button { margin: 0 0 13px auto; padding: 8px 4px; color: var(--green); background: transparent; border: 0; font-size: 10px; font-weight: 600; white-space: nowrap; }
     .table-panel { overflow: hidden; }.table-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--line); }.table-heading h2 { font-size: 14px; }.table-heading p { margin: 4px 0 0; color: var(--muted); font-size: 10px; }.table-count { color: #7c8881; font-size: 10px; white-space: nowrap; }
@@ -68,6 +68,8 @@ export class ReviewsPageComponent implements OnInit {
   size = 10;
   readonly rows = signal<Review[]>([]);
   readonly total = signal(0);
+
+  exportUrl() { return this.api.exportUrl(this.product); }
 
   ngOnInit() { this.reload(); }
   reload() { this.page = 0; this.fetch(); }

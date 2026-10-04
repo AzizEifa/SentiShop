@@ -42,3 +42,16 @@ export interface Page<T> {
   content: T[];
   totalElements: number;
 }
+/** B3 : comparaison multilingue / anglais seul */
+export interface ModelResult {
+  model: string;
+  label: Sentiment;
+  score: number;
+  cached: boolean;
+}
+
+export interface CompareResponse {
+  multilingual: ModelResult;
+  english: ModelResult;
+  agree: boolean;
+}
