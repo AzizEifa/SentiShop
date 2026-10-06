@@ -2,7 +2,7 @@
 
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { DashboardStats, SummaryResponse } from '../models/models';
+import { DashboardStats, SummaryResponse, TrendPoint } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
 export class DashboardApi {
@@ -11,10 +11,15 @@ export class DashboardApi {
   private p = (product: string) =>
     product ? new HttpParams().set('product', product) : new HttpParams();
 
-  stats(product: string) {
-    return this.http.get<DashboardStats>('/api/dashboard/stats', {
-      params: this.p(product),
-    });
+  /** days : N derniers jours (absent = toute la période). */
+  stats(product: string, days?: number | null) {
+    const params = days ? this.p(product).set('days', days) : this.p(product);
+    return this.http.get<DashboardStats>('/api/dashboard/stats', { params });
+  }
+
+  /** Un point par jour sur les N derniers jours. */
+  trend(product: string, days: number) {
+    return this.http.get<TrendPoint[]>('/api/dashboard/trend', { params: this.p(product).set('days', days) });
   }
 
   products() {

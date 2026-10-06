@@ -6,7 +6,24 @@ import { ReviewEvent } from '../models/models';
 export interface AppNotification extends ReviewEvent { read: boolean; receivedAt: number; }
 export interface Toast { key: number; event: ReviewEvent; }
 
-const MAX_ITEMS = 30;
+/** Événement produit par l'application elle-même (import, indisponibilité de l'IA). */
+export type SystemKind = 'import.done' | 'import.errors' | 'analysis.unavailable';
+export interface SystemNotification {
+  kind: SystemKind;
+  title: string;
+  message: string;
+  /** Page concernée (ex. /import, /dashboard). */
+  link?: string;
+  read: boolean;
+  receivedAt: number;
+}
+
+/** Fil unique (avis + événements de l'application), du plus récent au plus ancien. */
+export type FeedItem =
+  | { source: 'review'; item: AppNotification }
+  | { source: 'system'; item: SystemNotification };
+
+const MAX_ITEMS = 50;
 const TOAST_MS = 7000;
 const MAX_TOASTS = 3;
 
@@ -29,10 +46,19 @@ export class NotificationService {
   /** Remplacée par les tests. */
   socketFactory: SocketFactory = (url) => new WebSocket(url);
 
+  /** Avis publiés ou modifiés par les clients (temps réel). */
   readonly items = signal<AppNotification[]>([]);
+  /** Événements de l'application pendant la session (imports, IA indisponible). */
+  readonly system = signal<SystemNotification[]>([]);
   readonly toasts = signal<Toast[]>([]);
   readonly connected = signal(false);
-  readonly unread = computed(() => this.items().filter((n) => !n.read).length);
+  readonly unread = computed(() => this.items().filter((n) => !n.read).length + this.system().filter((n) => !n.read).length);
+  readonly feed = computed<FeedItem[]>(() =>
+    [
+      ...this.items().map((item) => ({ source: 'review' as const, item })),
+      ...this.system().map((item) => ({ source: 'system' as const, item })),
+    ].sort((a, b) => b.item.receivedAt - a.item.receivedAt)
+  );
   /** Flux des nouveaux avis, pour rafraîchir les pages ouvertes. */
   readonly reviews$ = new Subject<ReviewEvent>();
 
@@ -52,9 +78,23 @@ export class NotificationService {
 
   markAllRead() {
     this.items.update((list) => list.map((n) => ({ ...n, read: true })));
+    this.system.update((list) => list.map((n) => ({ ...n, read: true })));
   }
 
-  clear() { this.items.set([]); }
+  /** Marque une notification comme lue (receivedAt sert d'identifiant). */
+  markRead(receivedAt: number) {
+    this.items.update((list) => list.map((n) => (n.receivedAt === receivedAt ? { ...n, read: true } : n)));
+    this.system.update((list) => list.map((n) => (n.receivedAt === receivedAt ? { ...n, read: true } : n)));
+  }
+
+  clear() { this.items.set([]); this.system.set([]); }
+
+  /** Ajoute une notification produite par l'application (ex. fin d'un import). */
+  notify(event: Pick<SystemNotification, 'kind' | 'title' | 'message' | 'link'>) {
+    // horodatage unique même pour deux événements dans la même milliseconde
+    const last = Math.max(0, ...this.system().map((n) => n.receivedAt), ...this.items().map((n) => n.receivedAt));
+    this.system.update((list) => [{ ...event, read: false, receivedAt: Math.max(Date.now(), last + 1) }, ...list].slice(0, MAX_ITEMS));
+  }
 
   dismiss(key: number) {
     this.toasts.update((list) => list.filter((t) => t.key !== key));

@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpErrorResponse } from '@angular/common/http';
 import { ActivatedRoute, Router, convertToParamMap, provideRouter } from '@angular/router';
 import { of, throwError } from 'rxjs';
+import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { AuthService } from '../../core/auth/auth.service';
 import { AuthResponse, Role } from '../../core/models/models';
 import { LoginPageComponent } from './login-page.component';
@@ -21,7 +22,7 @@ describe('Pages connexion / inscription', () => {
     auth = jasmine.createSpyObj<AuthService>('AuthService', ['login', 'register', 'homeUrl']);
     auth.homeUrl.and.callFake((role?: Role) => (role === 'ADMIN' ? '/dashboard' : '/espace'));
     TestBed.configureTestingModule({
-      providers: [provideRouter([]), { provide: AuthService, useValue: auth },
+      providers: [provideRouter([]), provideNoopAnimations(), { provide: AuthService, useValue: auth },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(query) } } }],
     });
     router = TestBed.inject(Router);
@@ -99,9 +100,21 @@ describe('Pages connexion / inscription', () => {
       const cmp = TestBed.createComponent(RegisterPageComponent).componentInstance;
       Object.assign(cmp, { fullName: 'Sara Benali', email: 'sara@test.local' });
       cmp.password.set('Secret123');
+      cmp.confirm.set('Secret123');
       cmp.submit();
       expect(cmp.fieldError('email')).toBe('Un compte existe déjà avec cet email.');
       expect(cmp.emailTaken()).toBeTrue();
+    });
+
+    it('exige une confirmation identique du mot de passe', () => {
+      setup();
+      const cmp = TestBed.createComponent(RegisterPageComponent).componentInstance;
+      Object.assign(cmp, { fullName: 'Sara Benali', email: 'sara@test.local' });
+      cmp.password.set('Secret123');
+      cmp.confirm.set('Secret124');
+      cmp.submit();
+      expect(cmp.fieldError('confirm')).toContain('ne correspondent pas');
+      expect(auth.register).not.toHaveBeenCalled();
     });
 
     it('succès : ouvre l’espace client', () => {
@@ -110,6 +123,7 @@ describe('Pages connexion / inscription', () => {
       const cmp = TestBed.createComponent(RegisterPageComponent).componentInstance;
       Object.assign(cmp, { fullName: 'Sara Benali', email: 'sara@test.local' });
       cmp.password.set('Secret123');
+      cmp.confirm.set('Secret123');
       cmp.submit();
       expect(auth.register).toHaveBeenCalledWith('Sara Benali', 'sara@test.local', 'Secret123');
       expect(router.navigateByUrl).toHaveBeenCalledWith('/espace');

@@ -20,9 +20,10 @@ export const DEMO_ACCOUNTS = [
   imports: [FormsModule, RouterLink, AuthShellComponent],
   template: `
     <app-auth-shell>
-      <div class="mobile-brand"><span class="mark"><span class="icon fill">insights</span></span>SentiShop</div>
-      <h1>Bon retour parmi nous</h1>
-      <p class="lead">Connectez-vous pour accéder à votre espace.</p>
+      <div class="mobile-brand"><span class="brand-mark">S</span>SentiShop</div>
+      <p class="mobile-pitch">Comprenez vos avis clients grâce à l’analyse multilingue.</p>
+      <h1>Connexion</h1>
+      <p class="lead">Connectez-vous pour accéder à votre espace. Le compte ouvre automatiquement l’espace qui lui correspond.</p>
 
       @if (expired) { <div class="alert alert-info fade-in"><span class="icon">schedule</span><div>Votre session a expiré. Reconnectez-vous pour continuer.</div></div> }
       @if (error()) { <div class="alert alert-danger fade-in" role="alert"><span class="icon">error</span><div>{{ error() }}</div></div> }
@@ -30,8 +31,8 @@ export const DEMO_ACCOUNTS = [
       <form (submit)="$event.preventDefault(); submit()" novalidate>
         <div class="field">
           <label class="label" for="email">Adresse email</label>
-          <input id="email" class="input" type="email" name="email" autocomplete="email" [(ngModel)]="email" [class.invalid]="touched() && emailError()" placeholder="vous@exemple.com" autofocus />
-          @if (touched() && emailError()) { <span class="field-error"><span class="icon">error</span>{{ emailError() }}</span> }
+          <input id="email" class="input" type="email" name="email" autocomplete="email" [(ngModel)]="email" [class.invalid]="touched() && emailError()" [attr.aria-invalid]="touched() && !!emailError()" [attr.aria-describedby]="touched() && emailError() ? 'email-error' : null" placeholder="vous@exemple.com" autofocus />
+          @if (touched() && emailError()) { <span class="field-error" id="email-error"><span class="icon">error</span>{{ emailError() }}</span> }
         </div>
         <div class="field">
           <label class="label" for="password">Mot de passe</label>
@@ -43,7 +44,7 @@ export const DEMO_ACCOUNTS = [
         </div>
         <div class="row"><label class="check"><input type="checkbox" name="remember" [(ngModel)]="remember" />Se souvenir de moi</label></div>
         <button class="btn btn-primary btn-lg btn-block submit" type="submit" [disabled]="loading()">
-          @if (loading()) { <span class="spinner"></span>Connexion… } @else { Se connecter }
+          @if (loading()) { <span class="spinner"></span>Connexion… } @else { Se connecter<span class="icon">arrow_forward</span> }
         </button>
       </form>
 
@@ -51,7 +52,7 @@ export const DEMO_ACCOUNTS = [
 
       @if (demo) {
         <div class="demo">
-          <span class="demo-title"><span class="icon">science</span>Comptes de démonstration</span>
+          <span class="demo-title"><span class="icon">science</span>Mode développement · comptes de démonstration</span>
           <div class="demo-buttons">
             @for (a of demoAccounts; track a.email) {
               <button class="chip" type="button" (click)="fill(a.email, a.password)"><span class="icon">{{ a.icon }}</span>{{ a.label }}</button>
@@ -62,10 +63,11 @@ export const DEMO_ACCOUNTS = [
     </app-auth-shell>
   `,
   styles: [AUTH_FORM_STYLES, `
-    .demo { display: grid; gap: 10px; margin-top: 32px; padding: 14px 16px; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--r); }
-    .demo-title { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12.5px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; }
+    .demo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .demo-title { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12.5px; font-weight: 500; }
     .demo-title .icon { font-size: 16px; }
-    .demo-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+    .demo-buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+    .demo .chip { height: 28px; font-size: 12.5px; }
     .alert { margin-bottom: 18px; }
   `],
 })

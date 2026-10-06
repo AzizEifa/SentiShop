@@ -1,17 +1,19 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { tap } from 'rxjs';
-import { AnalyzeResponse, CompareResponse, ImportReport, Page, Review, Sentiment } from '../models/models';
+import { silentErrors } from '../interceptors/silent-errors';
+import { AnalyzeResponse, CompareResponse, ImportReport, Page, Review, ReviewQuery, Sentiment } from '../models/models';
 
 @Injectable({ providedIn: 'root' })
 export class ReviewApi {
   private readonly http = inject(HttpClient);
 
+  /** Erreurs affichées par la page d'analyse elle-même (états « IA indisponible », « quota »…). */
   analyze(text: string, product?: string) {
     return this.http.post<AnalyzeResponse>('/api/reviews/analyze', {
       text,
       ...(product ? { product } : {}),
-    });
+    }, silentErrors());
   }
 
   /** Envoie un CSV "text,product" (multipart, champ "file"). */
@@ -27,9 +29,17 @@ export class ReviewApi {
   }
 
   list(product: string, label: Sentiment | '', page: number, size: number) {
-    let params = new HttpParams().set('page', page).set('size', size);
-    if (product) params = params.set('product', product);
-    if (label) params = params.set('label', label);
+    return this.search({ product, label, page, size });
+  }
+
+  /** Liste filtrée, triée et paginée par le serveur. */
+  search(query: ReviewQuery) {
+    let params = new HttpParams().set('page', query.page).set('size', query.size);
+    if (query.product) params = params.set('product', query.product);
+    if (query.label) params = params.set('label', query.label);
+    if (query.q?.trim()) params = params.set('q', query.q.trim());
+    if (query.days) params = params.set('days', query.days);
+    if (query.sort) params = params.set('sort', `${query.sort},${query.dir ?? 'desc'}`);
     return this.http.get<Page<Review>>('/api/reviews', { params });
   }
 

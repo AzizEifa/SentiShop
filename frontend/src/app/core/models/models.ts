@@ -25,6 +25,30 @@ export interface DashboardStats {
   negativePct: number;
 }
 
+/** Avis d'un jour, par sentiment (GET /api/dashboard/trend). */
+export interface TrendPoint {
+  date: string;
+  positive: number;
+  neutral: number;
+  negative: number;
+}
+
+export type ReviewSort = 'createdAt' | 'score' | 'product' | 'authorName';
+
+/** Filtres, tri et pagination de la liste des avis (GET /api/reviews). */
+export interface ReviewQuery {
+  product?: string;
+  label?: Sentiment | '';
+  /** Recherche dans le texte ou le nom de l'auteur. */
+  q?: string;
+  /** Période : N derniers jours (vide = tout). */
+  days?: number | null;
+  sort?: ReviewSort;
+  dir?: 'asc' | 'desc';
+  page: number;
+  size: number;
+}
+
 export interface SummaryResponse {
   summary: string;
   reviewsUsed: number;

@@ -35,7 +35,7 @@ import { StarsComponent } from '../stars/stars.component';
     .stack { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: grid; gap: 10px; width: 360px; max-width: calc(100vw - 32px); pointer-events: none; }
     .toast { position: relative; display: flex; gap: 12px; padding: 14px 14px 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md); pointer-events: auto; animation: slide-in .35s cubic-bezier(.2, .9, .3, 1.2) both; }
     @keyframes slide-in { from { opacity: 0; transform: translateX(24px) scale(.98); } to { opacity: 1; transform: none; } }
-    .toast-icon { display: grid; place-items: center; width: 36px; height: 36px; flex: 0 0 auto; border-radius: 10px; color: var(--neu-text); background: var(--neu-soft); }
+    .toast-icon { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 auto; border-radius: var(--r); color: var(--neu-text); background: var(--neu-soft); }
     .pos .toast-icon { color: var(--pos); background: var(--pos-soft); } .neg .toast-icon { color: var(--neg); background: var(--neg-soft); }
     .toast-icon .icon { font-size: 20px; }
     .content { display: grid; gap: 3px; min-width: 0; flex: 1; }
@@ -60,6 +60,6 @@ export class ToastStackComponent {
 
   view(key: number, e: ReviewEvent) {
     this.n.dismiss(key);
-    this.router.navigate(['/reviews'], { queryParams: { label: e.label } });
+    this.router.navigate(['/reviews'], { queryParams: { review: e.id } });
   }
 }

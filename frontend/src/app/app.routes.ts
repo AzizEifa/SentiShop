@@ -32,8 +32,18 @@ export const routes: Routes = [
     children: [
       {
         path: '',
-        title: 'Mes avis · SentiShop',
+        title: 'Mon espace · SentiShop',
+        loadComponent: () => import('./features/client/client-home.component').then((m) => m.ClientHomeComponent),
+      },
+      {
+        path: 'nouveau',
+        title: 'Déposer un avis · SentiShop',
         loadComponent: () => import('./features/client/client-space.component').then((m) => m.ClientSpaceComponent),
+      },
+      {
+        path: 'avis',
+        title: 'Mes avis · SentiShop',
+        loadComponent: () => import('./features/client/my-reviews.component').then((m) => m.MyReviewsComponent),
       },
       {
         path: 'profil',
@@ -52,8 +62,8 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
       {
         path: 'dashboard',
-        title: "Vue d'ensemble · SentiShop",
-        data: { section: 'Pilotage', title: "Vue d'ensemble" } satisfies PageData,
+        title: 'Tableau de bord · SentiShop',
+        data: { section: 'Pilotage', title: 'Tableau de bord' } satisfies PageData,
         loadComponent: () =>
           import('./features/dashboard/dashboard-page/dashboard-page.component').then((m) => m.DashboardPageComponent),
       },
@@ -67,21 +77,21 @@ export const routes: Routes = [
       {
         path: 'analyze',
         title: 'Analyser un avis · SentiShop',
-        data: { section: 'Analyse', title: 'Analyser un avis' } satisfies PageData,
+        data: { section: 'Intelligence', title: 'Analyser un avis' } satisfies PageData,
         loadComponent: () =>
           import('./features/analyze/analyze-page/analyze-page.component').then((m) => m.AnalyzePageComponent),
       },
       {
         path: 'import',
         title: 'Importer des avis · SentiShop',
-        data: { section: 'Analyse', title: 'Importer des avis' } satisfies PageData,
+        data: { section: 'Intelligence', title: 'Importer des avis' } satisfies PageData,
         loadComponent: () =>
           import('./features/import/import-page/import-page.component').then((m) => m.ImportPageComponent),
       },
       {
         path: 'compare',
         title: 'Comparer les modèles · SentiShop',
-        data: { section: 'Laboratoire', title: 'Comparer les modèles' } satisfies PageData,
+        data: { section: 'Intelligence', title: 'Comparer les modèles' } satisfies PageData,
         loadComponent: () =>
           import('./features/compare/compare-page/compare-page.component').then((m) => m.ComparePageComponent),
       },
@@ -102,6 +112,13 @@ export const routes: Routes = [
         title: 'Utilisateurs · SentiShop',
         data: { section: 'Gestion', title: 'Utilisateurs' } satisfies PageData,
         loadComponent: () => import('./features/users/users-page.component').then((m) => m.UsersPageComponent),
+      },
+      {
+        path: 'notifications',
+        title: 'Notifications · SentiShop',
+        data: { section: 'Gestion', title: 'Notifications' } satisfies PageData,
+        loadComponent: () =>
+          import('./features/notifications/notifications-page.component').then((m) => m.NotificationsPageComponent),
       },
     ],
   },

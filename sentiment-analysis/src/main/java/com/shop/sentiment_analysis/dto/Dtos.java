@@ -16,4 +16,6 @@ public final class Dtos {
     public record DashboardStats(long positive, long neutral, long negative, long total,
                                  double positivePct, double neutralPct, double negativePct) {}
     public record SummaryResponse(String summary, int reviewsUsed) {}
+    /** Nombre d'avis par sentiment pour un jour (yyyy-MM-dd, fuseau du serveur). */
+    public record TrendPoint(String date, long positive, long neutral, long negative) {}
 }

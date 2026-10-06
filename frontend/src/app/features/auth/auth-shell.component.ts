@@ -7,21 +7,21 @@ import { Component } from '@angular/core';
   template: `
     <div class="auth">
       <aside class="showcase" aria-hidden="true">
-        <div class="brand"><span class="brand-mark"><span class="icon fill">insights</span></span>SentiShop</div>
+        <div class="brand"><span class="brand-mark">S</span><span><strong>SentiShop</strong><small>Intelligence</small></span></div>
         <div class="pitch">
-          <h2>Comprenez ce que vos clients ressentent.</h2>
-          <p>Chaque avis est analysé par l’IA en français, en anglais et en arabe, puis réuni dans un tableau de bord clair.</p>
-          <ul>
-            <li><span class="icon">translate</span>Analyse multilingue FR · EN · AR</li>
-            <li><span class="icon">notifications_active</span>Alertes en temps réel à chaque nouvel avis</li>
-            <li><span class="icon">verified_user</span>Espaces séparés clients et administrateurs</li>
-          </ul>
+          <h2>Comprenez vos avis clients grâce à l’analyse multilingue.</h2>
+          <p>Chaque avis, en français, en anglais ou en arabe, est classé par l’IA (positif, neutre ou négatif) puis réuni dans un tableau de bord qui montre où agir en priorité.</p>
+          <div class="preview">
+            <div class="preview-row"><span class="dot pos"></span><span dir="auto">Livraison rapide, je recommande !</span><b class="pos">Positif</b></div>
+            <div class="preview-row"><span class="dot neg"></span><span dir="auto">The strap broke after one week.</span><b class="neg">Négatif</b></div>
+            <div class="preview-row"><span class="dot neu"></span><span dir="auto">المنتج عادي، لا بأس به</span><b class="neu">Neutre</b></div>
+          </div>
         </div>
-        <div class="preview">
-          <div class="preview-head"><span class="avatar">SB</span><div><strong>Sara B.</strong><small>Casque Bluetooth</small></div><span class="stars">★★★★★</span></div>
-          <p>« Son excellent, livraison rapide : je recommande ! »</p>
-          <div class="preview-foot"><span class="pill"><span class="icon fill">sentiment_satisfied</span>Positif</span><span>97 % de confiance</span></div>
-        </div>
+        <dl class="facts">
+          <div><dt>3 langues</dt><dd>Un seul modèle multilingue (XLM-RoBERTa).</dd></div>
+          <div><dt>Temps réel</dt><dd>Chaque nouvel avis met le tableau de bord à jour.</dd></div>
+          <div><dt>2 espaces</dt><dd>Clients et administrateurs, chacun ses droits.</dd></div>
+        </dl>
       </aside>
       <main class="panel">
         <div class="form-wrap"><ng-content /></div>
@@ -29,32 +29,32 @@ import { Component } from '@angular/core';
     </div>
   `,
   styles: [`
-    .auth { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(0, 1.1fr); min-height: 100vh; background: var(--surface); }
+    .auth { display: grid; grid-template-columns: minmax(400px, .95fr) minmax(0, 1.05fr); min-height: 100vh; background: var(--surface); }
     .showcase {
-      position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 32px; padding: 40px 48px; overflow: hidden; color: #e8f5ef;
-      background: radial-gradient(1200px 500px at -10% 110%, #1aa37a55, transparent 60%), radial-gradient(800px 400px at 120% -10%, #34d39933, transparent 60%), linear-gradient(160deg, #0b3a2c, #0f5c46 55%, #12785c);
+      position: relative; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; padding: 36px 48px 44px; overflow: hidden;
+      color: #b4c2d8; background: var(--navy);
     }
-    .showcase::after { content: ''; position: absolute; inset: 0; background-image: radial-gradient(rgba(255,255,255,.07) 1px, transparent 1px); background-size: 22px 22px; pointer-events: none; }
-    .brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -.02em; }
-    .brand-mark { display: grid; place-items: center; width: 36px; height: 36px; background: rgba(255,255,255,.14); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; }
-    .pitch { position: relative; z-index: 1; max-width: 440px; }
-    .pitch h2 { color: #fff; font-size: 32px; line-height: 1.2; font-weight: 700; letter-spacing: -.03em; }
-    .pitch p { margin-top: 14px; color: #bfe3d3; font-size: 15px; line-height: 1.6; }
-    .pitch ul { display: grid; gap: 12px; margin: 28px 0 0; padding: 0; list-style: none; }
-    .pitch li { display: flex; align-items: center; gap: 12px; color: #e3f4ec; font-size: 14.5px; }
-    .pitch li .icon { display: grid; place-items: center; width: 32px; height: 32px; color: #fff; background: rgba(255,255,255,.1); border-radius: 9px; font-size: 18px; }
-    .preview { position: relative; z-index: 1; max-width: 400px; padding: 18px; color: var(--text); background: rgba(255,255,255,.96); border-radius: 16px; box-shadow: 0 24px 48px -12px rgba(0,0,0,.35); transform: rotate(-1.5deg); }
-    .preview-head { display: flex; align-items: center; gap: 10px; }
-    .preview-head div { display: grid; line-height: 1.25; } .preview-head strong { font-size: 13.5px; } .preview-head small { color: var(--text-3); font-size: 12px; }
-    .avatar { display: grid; place-items: center; width: 34px; height: 34px; color: #fff; background: linear-gradient(135deg, #6366f1, #8b5cf6); border-radius: 50%; font-size: 12px; font-weight: 650; }
-    .stars { margin-left: auto; color: #f5a524; letter-spacing: 1px; }
-    .preview p { margin: 12px 0; color: var(--text-2); font-size: 14px; }
-    .preview-foot { display: flex; align-items: center; justify-content: space-between; color: var(--text-3); font-size: 12.5px; }
-    .pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px 3px 6px; color: var(--pos-text); background: var(--pos-soft); border-radius: 99px; font-weight: 600; }
-    .pill .icon { font-size: 16px; }
+    .showcase::before {
+      content: ''; position: absolute; inset: 0; pointer-events: none;
+      background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+      background-size: 48px 48px; mask-image: linear-gradient(to bottom, #000, transparent 80%);
+    }
+    .brand { position: relative; display: flex; align-items: center; gap: 11px; color: #fff; }
+    .brand span:last-child { display: grid; line-height: 1.15; }
+    .brand strong { font-size: 16px; font-weight: 650; letter-spacing: -.015em; }
+    .brand small { color: #7d90ad; font-size: 11.5px; font-weight: 550; letter-spacing: .06em; text-transform: uppercase; }
+    .pitch { position: relative; max-width: 480px; }
+    .pitch h2 { color: #fff; font-size: 32px; line-height: 1.18; font-weight: 650; letter-spacing: -.03em; }
+    .pitch p { margin-top: 16px; font-size: 15px; line-height: 1.6; }
+    .preview { display: grid; gap: 8px; margin-top: 28px; padding: 14px; background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.08); border-radius: var(--r-lg); }
+    .preview-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; color: #e6edf7; background: rgba(255,255,255,.04); border-radius: var(--r); font-size: 13.5px; unicode-bidi: plaintext; }
+    .preview-row b { font-size: 12px; font-weight: 650; } .preview-row b.pos { color: #6fe0b7; } .preview-row b.neg { color: #ff9b9b; } .preview-row b.neu { color: #f5c67a; }
+    .facts { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 0; padding-top: 24px; border-top: 1px solid rgba(255,255,255,.1); }
+    .facts dt { color: #fff; font-size: 14px; font-weight: 600; }
+    .facts dd { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; }
     .panel { display: grid; place-items: center; padding: 40px 24px; }
-    .form-wrap { width: min(100%, 420px); }
-    @media (max-width: 960px) { .auth { grid-template-columns: 1fr; } .showcase { display: none; } .panel { align-items: start; padding-top: 56px; } }
+    .form-wrap { width: min(100%, 400px); }
+    @media (max-width: 960px) { .auth { grid-template-columns: 1fr; } .showcase { display: none; } .panel { align-items: start; padding-top: 48px; } }
   `],
 })
 export class AuthShellComponent {}

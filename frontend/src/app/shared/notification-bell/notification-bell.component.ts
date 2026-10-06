@@ -1,14 +1,16 @@
-import { Component, ElementRef, HostListener, inject, signal } from '@angular/core';
-import { Router } from '@angular/router';
-import { NotificationService } from '../../core/notifications/notification.service';
+import { Component, ElementRef, HostListener, computed, inject, signal } from '@angular/core';
+import { Router, RouterLink } from '@angular/router';
+import { FeedItem, NotificationService } from '../../core/notifications/notification.service';
 import { SENTIMENT_CLASS, SENTIMENT_LABEL, formatRelative } from '../../core/format';
 import { Sentiment } from '../../core/models/models';
 import { StarsComponent } from '../stars/stars.component';
 
+const PREVIEW = 6;
+
 @Component({
   selector: 'app-notification-bell',
   standalone: true,
-  imports: [StarsComponent],
+  imports: [StarsComponent, RouterLink],
   template: `
     <button class="bell" type="button" (click)="toggle()" [attr.aria-expanded]="open()" aria-haspopup="dialog"
             [attr.aria-label]="'Notifications' + (n.unread() ? ', ' + n.unread() + ' non lue(s)' : '')">
@@ -21,54 +23,65 @@ import { StarsComponent } from '../stars/stars.component';
         <header>
           <div>
             <h3>Notifications</h3>
-            <span class="live" [class.on]="n.connected()"><span class="pulse"></span>{{ n.connected() ? 'En direct' : 'Reconnexion…' }}</span>
+            <span class="live" [class.on]="n.connected()"><span class="pulse"></span>{{ n.connected() ? 'Temps réel' : 'Reconnexion…' }}</span>
           </div>
-          @if (n.items().length) { <button class="link-btn" type="button" (click)="n.clear()">Tout effacer</button> }
+          @if (n.unread()) { <button class="link-btn" type="button" (click)="n.markAllRead()">Tout marquer lu</button> }
         </header>
-        @if (n.items().length) {
+        @if (preview().length) {
           <ul>
-            @for (item of n.items(); track item.receivedAt) {
-              <li [class.unread]="!item.read">
-                <button type="button" (click)="openReviews(item.label)">
-                  <span class="dot" [class]="'dot ' + tone(item.label)"></span>
-                  <span class="body">
-                    <span class="title"><strong>{{ item.authorName ?? 'Un client' }}</strong> {{ item.type === 'review.updated' ? 'a modifié son avis' : 'a publié un avis' }} <span [class]="'sent ' + tone(item.label)">{{ label(item.label).toLowerCase() }}</span>@if (item.imageUrls.length) { <span class="icon photo-ic" title="Avec photos">photo_camera</span> }</span>
-                    <span class="excerpt" dir="auto">« {{ item.text }} »</span>
-                    <span class="meta">
-                      @if (item.rating) { <app-stars [value]="item.rating" /> }
-                      <span class="tag">{{ item.product }}</span>
-                      <span class="muted">{{ relative(item.createdAt) }}</span>
+            @for (f of preview(); track f.item.receivedAt) {
+              <li [class.unread]="!f.item.read">
+                @if (f.source === 'review') {
+                  <button type="button" (click)="openReview(f.item.id, f.item.receivedAt)">
+                    <span class="dot" [class]="'dot ' + tone(f.item.label)"></span>
+                    <span class="body">
+                      <span class="title"><strong>{{ f.item.authorName ?? 'Un client' }}</strong> {{ f.item.type === 'review.updated' ? 'a modifié son avis' : 'a publié un avis' }} <span [class]="'sent ' + tone(f.item.label)">{{ label(f.item.label).toLowerCase() }}</span>@if (f.item.imageUrls.length) { <span class="icon photo-ic" title="Avec photos">photo_camera</span> }</span>
+                      <span class="excerpt" dir="auto">« {{ f.item.text }} »</span>
+                      <span class="meta">
+                        @if (f.item.rating) { <app-stars [value]="f.item.rating" /> }
+                        <span class="tag">{{ f.item.product }}</span>
+                        <span class="muted">{{ relative(f.item.createdAt) }}</span>
+                      </span>
                     </span>
-                  </span>
-                </button>
+                  </button>
+                } @else {
+                  <button type="button" (click)="openLink(f)">
+                    <span class="icon sys-ic">{{ f.item.kind === 'import.done' ? 'task_alt' : f.item.kind === 'import.errors' ? 'rule' : 'cloud_off' }}</span>
+                    <span class="body">
+                      <span class="title"><strong>{{ f.item.title }}</strong></span>
+                      <span class="excerpt">{{ f.item.message }}</span>
+                    </span>
+                  </button>
+                }
               </li>
             }
           </ul>
         } @else {
           <div class="empty"><span class="icon">notifications_active</span><p>Aucune notification.<br />Les nouveaux avis clients apparaîtront ici en temps réel.</p></div>
         }
+        <footer><a class="link-btn" routerLink="/notifications" (click)="open.set(false)">Voir toutes les notifications<span class="icon">arrow_forward</span></a></footer>
       </section>
     }
   `,
   styles: [`
     :host { position: relative; display: inline-flex; }
-    .bell { position: relative; display: grid; place-items: center; width: 38px; height: 38px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: 10px; transition: background .15s, border-color .15s; }
-    .bell:hover, .bell[aria-expanded='true'] { color: var(--text); background: var(--surface); border-color: var(--border); }
+    .bell { position: relative; display: grid; place-items: center; width: 38px; height: 38px; color: var(--text-2); background: none; border: 1px solid transparent; border-radius: var(--r); transition: background .12s, border-color .12s; }
+    .bell:hover, .bell[aria-expanded='true'] { color: var(--text); background: var(--surface-3); }
     .bell .icon { font-size: 22px; }
-    .badge { position: absolute; top: 3px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; color: #fff; background: var(--neg); border: 2px solid var(--bg); border-radius: 99px; font-size: 10.5px; font-weight: 700; line-height: 14px; animation: pop .3s ease; }
+    .badge { position: absolute; top: 3px; right: 2px; min-width: 18px; height: 18px; padding: 0 4px; color: #fff; background: var(--neg); border: 2px solid var(--surface); border-radius: 99px; font-size: 10px; font-weight: 700; line-height: 14px; animation: pop .3s ease; }
     @keyframes pop { 0% { transform: scale(.4); } 70% { transform: scale(1.15); } 100% { transform: scale(1); } }
-    .panel { position: absolute; top: calc(100% + 8px); right: -8px; z-index: 30; width: 380px; max-width: calc(100vw - 24px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md); overflow: hidden; }
+    .panel { position: absolute; top: calc(100% + 8px); right: -8px; z-index: 30; width: 400px; max-width: calc(100vw - 24px); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md); overflow: hidden; }
     header { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
     header div { display: flex; align-items: center; gap: 10px; }
     .live { display: inline-flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 12px; font-weight: 550; }
-    .pulse { width: 7px; height: 7px; background: var(--text-4); border-radius: 50%; }
-    .live.on { color: var(--pos-text); } .live.on .pulse { background: var(--pos); animation: pulse 1.8s infinite; }
-    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(26, 154, 108, .45); } 70% { box-shadow: 0 0 0 7px rgba(26, 154, 108, 0); } 100% { box-shadow: 0 0 0 0 rgba(26, 154, 108, 0); } }
+    .pulse { width: 7px; height: 7px; background: var(--text-5); border-radius: 50%; }
+    .live.on { color: var(--pos-text); } .live.on .pulse { background: var(--pos); }
     ul { max-height: 420px; margin: 0; padding: 6px; overflow-y: auto; list-style: none; }
-    li button { display: flex; gap: 10px; width: 100%; padding: 10px; background: none; border: 0; border-radius: 10px; text-align: start; }
+    li button { display: flex; gap: 10px; width: 100%; padding: 10px; background: none; border: 0; border-radius: var(--r); text-align: start; }
     li button:hover { background: var(--surface-2); }
-    li.unread button { background: var(--brand-50); } li.unread button:hover { background: var(--brand-100); }
+    li.unread button { background: var(--primary-50); } li.unread button:hover { background: var(--primary-100); }
     li .dot { margin-top: 6px; }
+    .sys-ic { color: var(--primary); font-size: 18px; }
     .body { display: grid; gap: 4px; min-width: 0; }
     .title { font-size: 13.5px; } .title strong { font-weight: 600; }
     .sent { font-weight: 600; } .sent.pos { color: var(--pos-text); } .sent.neg { color: var(--neg-text); } .sent.neu { color: var(--neu-text); }
@@ -77,6 +90,7 @@ import { StarsComponent } from '../stars/stars.component';
     .meta { display: flex; align-items: center; gap: 8px; font-size: 12px; }
     .empty { display: grid; justify-items: center; gap: 8px; padding: 32px 24px; color: var(--text-3); text-align: center; font-size: 13.5px; }
     .empty .icon { color: var(--text-4); font-size: 32px; }
+    footer { padding: 10px 16px; border-top: 1px solid var(--border); background: var(--surface-2); text-align: center; }
   `],
 })
 export class NotificationBellComponent {
@@ -84,18 +98,24 @@ export class NotificationBellComponent {
   private readonly router = inject(Router);
   private readonly host = inject(ElementRef<HTMLElement>);
   readonly open = signal(false);
+  readonly preview = computed(() => this.n.feed().slice(0, PREVIEW));
   readonly tone = (l: Sentiment) => SENTIMENT_CLASS[l];
   readonly label = (l: Sentiment) => SENTIMENT_LABEL[l];
   readonly relative = (iso: string) => formatRelative(iso);
 
-  toggle() {
-    this.open.set(!this.open());
-    if (this.open()) setTimeout(() => this.n.markAllRead(), 1500); // laisse le temps de repérer les nouveautés
+  toggle() { this.open.set(!this.open()); }
+
+  /** Ouvre le détail de l'avis dans la page Avis clients. */
+  openReview(id: number, receivedAt: number) {
+    this.open.set(false);
+    this.n.markRead(receivedAt);
+    this.router.navigate(['/reviews'], { queryParams: { review: id } });
   }
 
-  openReviews(label: Sentiment) {
+  openLink(f: FeedItem) {
     this.open.set(false);
-    this.router.navigate(['/reviews'], { queryParams: { label } });
+    this.n.markRead(f.item.receivedAt);
+    if (f.source === 'system' && f.item.link) this.router.navigateByUrl(f.item.link);
   }
 
   @HostListener('document:click', ['$event'])

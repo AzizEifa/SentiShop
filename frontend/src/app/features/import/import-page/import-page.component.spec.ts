@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
+import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ReviewApi } from '../../../core/api/review-api.service';
@@ -12,7 +13,7 @@ describe('ImportPageComponent', () => {
     api = jasmine.createSpyObj<ReviewApi>('ReviewApi', ['importCsv']);
     TestBed.configureTestingModule({
       imports: [ImportPageComponent],
-      providers: [{ provide: ReviewApi, useValue: api }, provideRouter([]), provideNoopAnimations()],
+      providers: [provideHttpClient(), { provide: ReviewApi, useValue: api }, provideRouter([]), provideNoopAnimations()],
     });
   });
 
@@ -65,18 +66,28 @@ describe('ImportPageComponent', () => {
     expect(cmp.loading()).toBeFalse();
   });
 
-  it('guide en 3 étapes : fichier → vérification (aperçu) → analyse', async () => {
+  it('guide en 5 étapes : fichier → vérification → colonnes → analyse → bilan', async () => {
     api.importCsv.and.returnValue(of({ total: 8, analyzed: 8, cacheHits: 0, errors: [] }));
     const cmp = TestBed.createComponent(ImportPageComponent).componentInstance;
     expect(cmp.step()).toBe(1);
     await cmp.selectFile(csvFile(8));
     expect(cmp.step()).toBe(2);
     expect(cmp.previewRows().length).toBe(5);
+    cmp.columnsStage.set(true);
+    expect(cmp.step()).toBe(3);
     expect(api.importCsv).not.toHaveBeenCalled(); // rien n'est envoyé avant confirmation
     await cmp.upload();
-    expect(cmp.step()).toBe(3);
+    expect(cmp.step()).toBe(5);
     await cmp.selectFile(null);
     expect(cmp.step()).toBe(1);
+  });
+
+  it('permet de choisir les colonnes quand aucun en-tête n’est reconnu', async () => {
+    const cmp = TestBed.createComponent(ImportPageComponent).componentInstance;
+    await cmp.selectFile(new File(['Casque;Très bon son\nMontre;Bracelet cassé'], 'brut.csv'));
+    expect(cmp.parsed()!.rows[0].text).toBe('Casque'); // 1re colonne par défaut
+    cmp.setColumns(1, 0);
+    expect(cmp.parsed()!.rows.map((r) => [r.text, r.product])).toEqual([['Très bon son', 'Casque'], ['Bracelet cassé', 'Montre']]);
   });
 
   it('refuse un fichier sans avis', async () => {

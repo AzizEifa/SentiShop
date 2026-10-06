@@ -6,16 +6,19 @@ import { formatNumber, formatRelative } from '../../core/format';
 import { AvatarComponent } from '../../shared/avatar/avatar.component';
 import { ConfirmService } from '../../shared/confirm-dialog/confirm-dialog.component';
 import { MatSnackBar } from '@angular/material/snack-bar';
+import { ErrorStateComponent } from '../../shared/states/states.component';
+
+const PAGE_SIZE = 10;
 
 @Component({
   selector: 'app-users-page',
   standalone: true,
-  imports: [AvatarComponent],
+  imports: [AvatarComponent, ErrorStateComponent],
   template: `
     <header class="page-header">
       <div>
         <h1>Utilisateurs</h1>
-        <p class="subtitle">Comptes clients et administrateurs de la boutique.</p>
+        <p class="subtitle">Comptes clients et administrateurs. Les droits sont vérifiés par le serveur à chaque action.</p>
       </div>
     </header>
 
@@ -27,25 +30,26 @@ import { MatSnackBar } from '@angular/material/snack-bar';
     </section>
 
     <section class="card">
-      <div class="toolbar">
+      @if (error()) { <app-error-state title="Utilisateurs indisponibles" message="La liste des comptes n’a pas pu être chargée." (retry)="ngOnInit()" /> } @else {
+      <div class="filter-bar">
         <div class="segmented" role="group" aria-label="Filtrer par rôle">
           @for (f of filters; track f.value) {
-            <button type="button" [class.active]="role() === f.value" [attr.aria-pressed]="role() === f.value" (click)="role.set(f.value)">{{ f.label }}</button>
+            <button type="button" [class.active]="role() === f.value" [attr.aria-pressed]="role() === f.value" (click)="role.set(f.value); page.set(0)">{{ f.label }}</button>
           }
         </div>
         <div class="input-group search">
           <span class="icon">search</span>
-          <input class="input" type="search" placeholder="Rechercher un nom ou un email…" aria-label="Rechercher" [value]="query()" (input)="query.set($any($event.target).value)" />
+          <input class="input" type="search" placeholder="Rechercher un nom ou un email…" aria-label="Rechercher" [value]="query()" (input)="query.set($any($event.target).value); page.set(0)" />
         </div>
       </div>
       <div class="table-wrap">
-        <table class="table">
+        <table class="table stack">
           <thead><tr><th>Utilisateur</th><th>Rôle</th><th class="num">Avis déposés</th><th>Inscription</th><th class="actions-col"><span class="sr-only">Actions</span></th></tr></thead>
           <tbody>
             @if (loading()) {
               @for (i of [1, 2, 3]; track i) { <tr><td colspan="5"><span class="skeleton" style="height: 36px"></span></td></tr> }
             } @else {
-              @for (u of filtered(); track u.id) {
+              @for (u of paged(); track u.id) {
                 <tr>
                   <td>
                     <div class="who">
@@ -53,9 +57,9 @@ import { MatSnackBar } from '@angular/material/snack-bar';
                       <div><strong>{{ u.fullName }}@if (u.id === me()) { <span class="you">vous</span> }</strong><small>{{ u.email }}</small></div>
                     </div>
                   </td>
-                  <td><span class="role" [class.admin]="u.role === 'ADMIN'"><span class="icon fill">{{ u.role === 'ADMIN' ? 'shield_person' : 'person' }}</span>{{ u.role === 'ADMIN' ? 'Administrateur' : 'Client' }}</span></td>
-                  <td class="num tabular">{{ u.role === 'ADMIN' ? '—' : fmt(u.reviewCount) }}</td>
-                  <td class="muted nowrap" [title]="u.createdAt">{{ relative(u.createdAt) }}</td>
+                  <td data-label="Rôle"><span class="role" [class.admin]="u.role === 'ADMIN'"><span class="icon fill">{{ u.role === 'ADMIN' ? 'shield_person' : 'person' }}</span>{{ u.role === 'ADMIN' ? 'Administrateur' : 'Client' }}</span></td>
+                  <td class="num tabular" data-label="Avis">{{ u.role === 'ADMIN' ? '—' : fmt(u.reviewCount) }}</td>
+                  <td class="muted nowrap" data-label="Inscription" [title]="u.createdAt">{{ relative(u.createdAt) }}</td>
                   <td class="actions-col">
                     @if (u.id !== me()) {
                       <div class="row-actions">
@@ -75,13 +79,22 @@ import { MatSnackBar } from '@angular/material/snack-bar';
           </tbody>
         </table>
       </div>
+      @if (filtered().length > pageSize) {
+        <footer class="pager">
+          <span class="muted tabular">{{ page() * pageSize + 1 }}–{{ min((page() + 1) * pageSize, filtered().length) }} sur {{ filtered().length }}</span>
+          <div class="pager-controls">
+            <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Page précédente" [disabled]="page() === 0" (click)="page.set(page() - 1)"><span class="icon">chevron_left</span></button>
+            <span class="tabular page-indicator">Page {{ page() + 1 }} / {{ pages() }}</span>
+            <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Page suivante" [disabled]="page() + 1 >= pages()" (click)="page.set(page() + 1)"><span class="icon">chevron_right</span></button>
+          </div>
+        </footer>
+      }
+      }
     </section>
   `,
   styles: [`
     :host { display: block; min-width: 0; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
-    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--border); }
-    .search { width: 280px; }
+
     .num { text-align: right; }
     .who { display: flex; align-items: center; gap: 12px; }
     .who div { display: grid; line-height: 1.3; } .who strong { font-weight: 600; } .who small { color: var(--text-3); font-size: 12.5px; }
@@ -89,9 +102,9 @@ import { MatSnackBar } from '@angular/material/snack-bar';
     .row-actions { display: flex; justify-content: flex-end; gap: 4px; }
     .btn.danger { color: var(--neg-text); } .btn.danger:hover:not(:disabled) { background: var(--neg-soft); }
     .you { margin-left: 6px; padding: 1px 7px; color: var(--text-3); background: var(--neu-soft); border-radius: 99px; font-size: 11px; font-weight: 600; }
-    .role { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 10px 0 7px; color: #4f46e5; background: #eef2ff; border-radius: 99px; font-size: 12.5px; font-weight: 600; }
-    .role.admin { color: var(--brand-600); background: var(--brand-50); } .role .icon { font-size: 16px; }
-    @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search { width: 100%; } }
+    .role { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 7px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 12px; font-weight: 500; }
+    .role.admin { color: #fff; background: var(--navy); border-color: var(--navy); } .role .icon { font-size: 14px; }
+    @media (max-width: 720px) { .row-actions { justify-content: flex-start; margin-top: 6px; } .actions-col { width: auto; } .segmented { width: 100%; overflow-x: auto; } }
   `],
 })
 export class UsersPageComponent implements OnInit {
@@ -112,6 +125,12 @@ export class UsersPageComponent implements OnInit {
     return this.users().filter((u) => (!this.role() || u.role === this.role())
       && (!q || u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)));
   });
+  readonly pageSize = PAGE_SIZE;
+  readonly page = signal(0);
+  readonly error = signal(false);
+  readonly pages = computed(() => Math.max(1, Math.ceil(this.filtered().length / PAGE_SIZE)));
+  readonly paged = computed(() => this.filtered().slice(this.page() * PAGE_SIZE, (this.page() + 1) * PAGE_SIZE));
+  readonly min = Math.min;
   readonly fmt = formatNumber;
   readonly relative = (iso: string) => formatRelative(iso);
   readonly busy = signal<number | null>(null);
@@ -156,9 +175,11 @@ export class UsersPageComponent implements OnInit {
   count(role: Role) { return this.users().filter((u) => u.role === role).length; }
 
   ngOnInit() {
+    this.loading.set(true);
+    this.error.set(false);
     this.api.users().subscribe({
       next: (list) => { this.users.set(list); this.loading.set(false); },
-      error: () => this.loading.set(false),
+      error: () => { this.loading.set(false); this.error.set(true); },
     });
   }
 }

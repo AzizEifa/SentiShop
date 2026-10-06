@@ -1,5 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { of } from 'rxjs';
+import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { provideNoopAnimations } from '@angular/platform-browser/animations';
 import { ReviewApi } from '../../../core/api/review-api.service';
@@ -15,7 +16,7 @@ describe('AnalyzePageComponent', () => {
     const dashboard = jasmine.createSpyObj<DashboardApi>('DashboardApi', { products: of(['Casque Bluetooth']) });
     TestBed.configureTestingModule({
       imports: [AnalyzePageComponent],
-      providers: [{ provide: ReviewApi, useValue: api }, { provide: DashboardApi, useValue: dashboard },
+      providers: [provideHttpClient(), { provide: ReviewApi, useValue: api }, { provide: DashboardApi, useValue: dashboard },
         provideRouter([]), provideNoopAnimations()],
     });
   });

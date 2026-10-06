@@ -46,11 +46,11 @@ export class ConfirmService {
     }
   `,
   styles: [`
-    .backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(16, 24, 40, .45); backdrop-filter: blur(2px); animation: fade .15s ease; }
-    .dialog { position: fixed; top: 50%; left: 50%; z-index: 91; display: grid; justify-items: center; gap: 8px; width: min(420px, calc(100vw - 32px)); padding: 28px 24px 22px; text-align: center; background: var(--surface); border-radius: 16px; box-shadow: 0 24px 48px -12px rgba(16, 24, 40, .3); transform: translate(-50%, -50%); animation: pop .2s cubic-bezier(.2, .9, .3, 1.2); }
-    .dialog-icon { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: 6px; color: var(--brand); background: var(--brand-50); border-radius: 50%; }
-    .dialog-icon.danger { color: var(--neg); background: var(--neg-soft); }
-    .dialog-icon .icon { font-size: 24px; }
+    .backdrop { position: fixed; inset: 0; z-index: 90; background: rgba(17, 17, 19, .4); animation: fade .15s ease; }
+    .dialog { position: fixed; top: 50%; left: 50%; z-index: 91; display: grid; justify-items: center; gap: 8px; width: min(420px, calc(100vw - 32px)); padding: 28px 24px 22px; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 24px 48px -12px rgba(17, 17, 19, .25); transform: translate(-50%, -50%); animation: pop .2s cubic-bezier(.2, .9, .3, 1.2); }
+    .dialog-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 6px; color: var(--text-2); background: var(--surface-3); border: 1px solid var(--border); border-radius: 50%; }
+    .dialog-icon.danger { color: var(--neg-text); background: var(--neg-soft); border-color: #fecdd6; }
+    .dialog-icon .icon { font-size: 20px; }
     h2 { font-size: 18px; }
     p { color: var(--text-2); }
     .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; margin-top: 14px; }

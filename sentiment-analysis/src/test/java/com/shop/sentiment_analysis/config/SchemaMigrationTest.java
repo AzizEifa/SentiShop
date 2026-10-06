@@ -41,7 +41,7 @@ class SchemaMigrationTest {
                 .satisfies(a -> assertThat(a.getLabel()).isEqualTo(SentimentLabel.POSITIVE));
         insertReview("h1", "Montre"); // aurait échoué avant la migration
         assertThat(reviews.count()).isEqualTo(2);
-        assertThat(dashboard.stats(null).positive()).isEqualTo(2);
+        assertThat(dashboard.stats(null, null).positive()).isEqualTo(2);
     }
 
     @Test

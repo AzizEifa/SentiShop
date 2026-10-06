@@ -29,15 +29,15 @@ import { RATING_LABEL } from '../../core/format';
   styles: [`
     :host { display: inline-flex; }
     .stars { display: inline-flex; align-items: center; gap: 1px; }
-    .icon { color: #d9dde3; font-size: 16px; }
-    .icon.on, .on .icon { color: #f5a524; }
+    .icon { color: #e4e4e7; font-size: 15px; }
+    .icon.on, .on .icon { color: var(--star); }
     .md .icon { font-size: 20px; }
-    .lg .icon { font-size: 34px; }
-    .editable button { display: grid; place-items: center; padding: 2px; background: none; border: 0; border-radius: 6px; transition: transform .12s; }
-    .editable button:hover { transform: scale(1.12); }
+    .lg .icon { font-size: 28px; }
+    .editable button { display: grid; place-items: center; padding: 2px; background: none; border: 0; border-radius: var(--r-sm); transition: transform .12s; }
+    .editable button:hover { transform: scale(1.06); }
     .editable button:focus-visible { box-shadow: var(--focus); }
-    .label { margin-left: 10px; color: var(--text-2); font-size: 14px; font-weight: 550; }
-    .label.muted { color: var(--text-4); font-weight: 450; }
+    .label { margin-left: 10px; color: var(--text-2); font-size: 13.5px; font-weight: 500; }
+    .label.muted { color: var(--text-4); font-weight: 400; }
   `],
 })
 export class StarsComponent {

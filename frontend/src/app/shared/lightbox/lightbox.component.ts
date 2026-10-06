@@ -38,7 +38,7 @@ export class LightboxService {
   `,
   styles: [`
     .lightbox { position: fixed; inset: 0; z-index: 95; display: grid; place-items: center; padding: 48px; background: rgba(10, 14, 20, .88); animation: fade .15s ease; }
-    img { max-width: 100%; max-height: 100%; border-radius: 10px; box-shadow: 0 24px 64px rgba(0,0,0,.5); object-fit: contain; }
+    img { max-width: 100%; max-height: 100%; border-radius: var(--r-lg); box-shadow: 0 24px 64px rgba(0,0,0,.5); object-fit: contain; }
     button { position: absolute; display: grid; place-items: center; width: 44px; height: 44px; color: #fff; background: rgba(255,255,255,.12); border: 0; border-radius: 50%; }
     button:hover { background: rgba(255,255,255,.22); }
     .close { top: 16px; right: 16px; } .prev { left: 16px; } .next { right: 16px; }

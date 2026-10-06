@@ -4,11 +4,14 @@ import { HttpErrorResponse } from '@angular/common/http';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { ProductApi } from '../../core/api/product-api.service';
 import { ApiProblem, Product, ProductForm } from '../../core/models/models';
-import { formatNumber } from '../../core/format';
+import { formatNumber, formatPct, smoothedNegativeRate } from '../../core/format';
+import { RouterLink } from '@angular/router';
 import { ConfirmService } from '../../shared/confirm-dialog/confirm-dialog.component';
 import { StarsComponent } from '../../shared/stars/stars.component';
 
 const MAX_IMAGE = 3 * 1024 * 1024;
+
+type ProductSort = 'priority' | 'negative' | 'rating' | 'reviews' | 'name';
 const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 /** Image choisie : vérifie le type et la taille avant tout envoi. */
@@ -21,7 +24,7 @@ export function imageProblem(file: File): string {
 @Component({
   selector: 'app-products-page',
   standalone: true,
-  imports: [FormsModule, StarsComponent],
+  imports: [FormsModule, RouterLink, StarsComponent],
   template: `
     <header class="page-header">
       <div>
@@ -38,24 +41,27 @@ export function imageProblem(file: File): string {
         <span class="icon">search</span>
         <input class="input" type="search" placeholder="Rechercher un produit…" aria-label="Rechercher un produit" [value]="query()" (input)="query.set($any($event.target).value)" />
       </div>
-      @if (categories().length) {
-        <div class="segmented" role="group" aria-label="Filtrer par catégorie">
-          <button type="button" [class.active]="!category()" (click)="category.set('')">Toutes</button>
-          @for (c of categories(); track c) { <button type="button" [class.active]="category() === c" (click)="category.set(c)">{{ c }}</button> }
-        </div>
-      }
+      <label class="sr-only" for="p-cat-filter">Catégorie</label>
+      <select id="p-cat-filter" class="select filter-select" [value]="category()" (change)="category.set($any($event.target).value)">
+        <option value="">Toutes les catégories</option>
+        @for (c of categories(); track c) { <option [value]="c">{{ c }}</option> }
+      </select>
+      <label class="sr-only" for="p-sort">Trier par</label>
+      <select id="p-sort" class="select filter-select" [value]="sort()" (change)="sort.set($any($event.target).value)">
+        @for (o of sortOptions; track o.value) { <option [value]="o.value">{{ o.label }}</option> }
+      </select>
       <span class="muted count">{{ filtered().length }} produit{{ filtered().length > 1 ? 's' : '' }}</span>
     </div>
 
     @if (loading()) {
-      <div class="grid">@for (i of [1, 2, 3, 4]; track i) { <span class="skeleton" style="height: 300px; border-radius: 14px"></span> }</div>
+      <div class="grid">@for (i of [1, 2, 3, 4]; track i) { <span class="skeleton" style="height: 280px"></span> }</div>
     } @else if (filtered().length) {
       <div class="grid">
         @for (p of filtered(); track p.id) {
           <article class="card product fade-in" tabindex="0" (click)="openEdit(p)" (keydown.enter)="openEdit(p)" [attr.aria-label]="'Modifier ' + p.name">
             <div class="cover">
               @if (p.imageUrl) { <img [src]="p.imageUrl" [alt]="p.name" loading="lazy" /> }
-              @else { <span class="placeholder"><span class="icon">inventory_2</span>{{ p.name.charAt(0) }}</span> }
+              @else { <span class="placeholder"><span class="icon">inventory_2</span></span> }
               @if (p.category) { <span class="category">{{ p.category }}</span> }
               <div class="card-actions">
                 <button class="icon-btn" type="button" title="Modifier" aria-label="Modifier" (click)="$event.stopPropagation(); openEdit(p)"><span class="icon">edit</span></button>
@@ -64,17 +70,22 @@ export function imageProblem(file: File): string {
             </div>
             <div class="info">
               <h3>{{ p.name }}</h3>
-              <p class="desc">{{ p.description || 'Aucune description.' }}</p>
+              <p class="desc" [class.empty]="!p.description">{{ p.description || 'Pas encore de description' }}</p>
               <div class="stats">
-                @if (p.stats.averageRating) { <span class="rating"><app-stars [value]="round(p.stats.averageRating)" />{{ p.stats.averageRating }}</span> }
+                @if (p.stats.averageRating) { <span class="rating"><app-stars [value]="round(p.stats.averageRating)" />{{ p.stats.averageRating }}</span> } @else { <span class="muted">Pas de note</span> }
                 <span class="muted">{{ fmt(p.stats.reviewCount) }} avis</span>
               </div>
               @if (p.stats.reviewCount) {
-                <div class="satisfaction" [title]="p.stats.positivePct + '% positifs, ' + p.stats.negativePct + '% négatifs'">
-                  <div class="stack-bar"><span class="pos" [style.width.%]="p.stats.positivePct"></span><span class="neu" [style.width.%]="100 - p.stats.positivePct - p.stats.negativePct"></span><span class="neg" [style.width.%]="p.stats.negativePct"></span></div>
-                  <span class="tabular">{{ p.stats.positivePct }}% satisfaits</span>
+                <div class="stack-bar" [attr.aria-label]="pct(p.stats.positivePct) + ' positifs, ' + pct(p.stats.negativePct) + ' négatifs'"><span class="pos" [style.width.%]="p.stats.positivePct"></span><span class="neu" [style.width.%]="100 - p.stats.positivePct - p.stats.negativePct"></span><span class="neg" [style.width.%]="p.stats.negativePct"></span></div>
+                <div class="rates">
+                  <span class="pos-text tabular"><span class="dot pos"></span>{{ pct(p.stats.positivePct) }} positifs</span>
+                  <span class="neg-text tabular"><span class="dot neg"></span>{{ pct(p.stats.negativePct) }} négatifs</span>
                 </div>
+                @if (p.stats.negativePct >= 35) { <span class="tag warn watch"><span class="icon">warning</span>À surveiller</span> }
+              } @else {
+                <span class="muted small">Aucun avis analysé</span>
               }
+              <a class="link-btn reviews-link" routerLink="/reviews" [queryParams]="{ product: p.name }" (click)="$event.stopPropagation()">Voir les avis<span class="icon">arrow_forward</span></a>
             </div>
           </article>
         }
@@ -144,33 +155,38 @@ export function imageProblem(file: File): string {
   styles: [`
     .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
     .search { width: 280px; } .count { margin-left: auto; font-size: 13px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
-    .product { display: flex; flex-direction: column; overflow: hidden; cursor: pointer; transition: transform .15s, box-shadow .15s, border-color .15s; }
-    .product:hover, .product:focus-visible { transform: translateY(-2px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
-    .cover { position: relative; aspect-ratio: 4 / 3; background: linear-gradient(135deg, var(--brand-50), #e0f2fe); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
+    .product { display: flex; flex-direction: column; overflow: hidden; cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+    .product:hover, .product:focus-visible { box-shadow: var(--shadow-md); border-color: var(--border-strong); }
+    .cover { position: relative; aspect-ratio: 16 / 10; background: var(--surface-2); border-bottom: 1px solid var(--border); }
     .cover img { width: 100%; height: 100%; object-fit: cover; }
-    .placeholder { display: grid; place-content: center; justify-items: center; gap: 4px; height: 100%; color: var(--brand); font-size: 30px; font-weight: 700; }
-    .placeholder .icon { font-size: 22px; opacity: .6; }
-    .category { position: absolute; top: 10px; left: 10px; padding: 3px 9px; color: var(--text-2); background: rgba(255,255,255,.92); border-radius: 99px; font-size: 11.5px; font-weight: 600; box-shadow: var(--shadow-xs); }
+    .placeholder { display: grid; place-items: center; height: 100%; color: var(--text-4); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 14px 14px; }
+    .placeholder .icon { display: grid; place-items: center; width: 44px; height: 44px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); font-size: 22px; }
+    .category { position: absolute; top: 10px; left: 10px; padding: 1px 7px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 11.5px; font-weight: 500; }
     .card-actions { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; opacity: 0; transform: translateY(-4px); transition: opacity .15s, transform .15s; }
     .product:hover .card-actions, .product:focus-within .card-actions { opacity: 1; transform: none; }
-    .icon-btn { display: grid; place-items: center; width: 32px; height: 32px; color: var(--text-2); background: rgba(255,255,255,.95); border: 0; border-radius: 8px; box-shadow: var(--shadow-sm); }
-    .icon-btn .icon { font-size: 18px; } .icon-btn:hover { color: var(--brand); } .icon-btn.danger:hover { color: var(--neg); }
+    .icon-btn { display: grid; place-items: center; width: 28px; height: 28px; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); }
+    .icon-btn .icon { font-size: 16px; } .icon-btn:hover { color: var(--text); border-color: var(--border-strong); } .icon-btn.danger:hover { color: var(--neg); }
     .info { display: grid; gap: 8px; padding: 14px 16px 16px; }
-    .info h3 { font-size: 15px; }
+    .info h3 { font-size: 14px; font-weight: 600; }
     .desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; min-height: 2.9em; overflow: hidden; color: var(--text-3); font-size: 13px; line-height: 1.45; }
+    .desc.empty { color: var(--text-4); font-style: italic; }
     .stats { display: flex; align-items: center; justify-content: space-between; font-size: 13px; }
-    .rating { display: inline-flex; align-items: center; gap: 6px; font-weight: 650; }
-    .satisfaction { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; color: var(--text-3); font-size: 12px; }
+    .rating { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+    .filter-select { width: auto; min-width: 180px; }
+    .rates { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 550; }
+    .rates span { display: inline-flex; align-items: center; gap: 5px; }
+    .watch { justify-self: start; } .watch .icon { font-size: 14px; }
+    .reviews-link { justify-self: start; margin-top: 2px; }
     .form { display: grid; gap: 18px; align-content: start; }
     .small { font-size: 12.5px; }
-    .dropzone { position: relative; display: grid; place-items: center; align-content: center; gap: 4px; aspect-ratio: 16 / 9; overflow: hidden; text-align: center; background: var(--surface-2); border: 1.5px dashed var(--border-strong); border-radius: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
-    .dropzone:hover, .dropzone.dragging { background: var(--brand-50); border-color: var(--brand); }
+    .dropzone { position: relative; display: grid; place-items: center; align-content: center; gap: 4px; aspect-ratio: 16 / 9; overflow: hidden; text-align: center; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: var(--r-lg); cursor: pointer; transition: border-color .15s, background .15s; }
+    .dropzone:hover, .dropzone.dragging { background: var(--surface-3); border-color: var(--text-4); }
     .dropzone.has-image { border-style: solid; }
     .dropzone img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-    .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; background: rgba(16, 24, 40, .45); font-weight: 600; opacity: 0; transition: opacity .15s; }
+    .overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 8px; color: #fff; background: rgba(17, 17, 19, .5); font-weight: 500; opacity: 0; transition: opacity .15s; }
     .dropzone:hover .overlay { opacity: 1; }
-    .drop-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 4px; color: var(--brand); background: var(--surface); border: 1px solid var(--border); border-radius: 12px; }
+    .drop-icon { display: grid; place-items: center; width: 40px; height: 40px; margin-bottom: 4px; color: var(--text-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); }
     .dropzone input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .field-error { display: flex; align-items: center; gap: 4px; color: var(--neg-text); font-size: 12.5px; } .field-error .icon { font-size: 15px; }
     .input.invalid { border-color: var(--neg); }
@@ -199,12 +215,40 @@ export class ProductsPageComponent implements OnInit, OnDestroy {
   private objectUrl: string | null = null;
 
   readonly fmt = formatNumber;
+  readonly pct = formatPct;
   readonly round = Math.round;
   readonly categories = computed(() => [...new Set(this.products().map((p) => p.category).filter((c): c is string => !!c))].sort());
+  readonly sortOptions: { value: ProductSort; label: string }[] = [
+    { value: 'priority', label: 'Les plus problématiques' },
+    { value: 'negative', label: 'Taux d’avis négatifs' },
+    { value: 'rating', label: 'Meilleure note' },
+    { value: 'reviews', label: 'Nombre d’avis' },
+    { value: 'name', label: 'Nom (A → Z)' },
+  ];
+  readonly sort = signal<ProductSort>('priority');
+
+  /** Taux négatif moyen de la boutique (référence du lissage). */
+  private readonly globalNegative = computed(() => {
+    const list = this.products();
+    const n = list.reduce((a, p) => a + p.stats.reviewCount, 0);
+    return n ? list.reduce((a, p) => a + p.stats.negativePct * p.stats.reviewCount, 0) / n : 0;
+  });
+
   readonly filtered = computed(() => {
     const q = this.query().trim().toLowerCase();
-    return this.products().filter((p) => (!this.category() || p.category === this.category())
+    const list = this.products().filter((p) => (!this.category() || p.category === this.category())
       && (!q || p.name.toLowerCase().includes(q) || (p.description ?? '').toLowerCase().includes(q)));
+    const g = this.globalNegative();
+    const priority = (p: Product) => smoothedNegativeRate(p.stats.negativePct, p.stats.reviewCount, g);
+    const by: Record<ProductSort, (a: Product, b: Product) => number> = {
+      // les plus problématiques d'abord, sans sur-pénaliser les produits avec très peu d'avis
+      priority: (a, b) => priority(b) - priority(a) || b.stats.reviewCount - a.stats.reviewCount,
+      negative: (a, b) => b.stats.negativePct - a.stats.negativePct,
+      rating: (a, b) => (b.stats.averageRating ?? -1) - (a.stats.averageRating ?? -1),
+      reviews: (a, b) => b.stats.reviewCount - a.stats.reviewCount,
+      name: (a, b) => a.name.localeCompare(b.name),
+    };
+    return [...list].sort((a, b) => by[this.sort()](a, b) || a.name.localeCompare(b.name));
   });
 
   ngOnInit() { this.load(); }

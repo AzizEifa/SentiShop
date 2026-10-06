@@ -33,11 +33,11 @@ export const EMOJI_GROUPS: { label: string; icon: string; emojis: string[] }[] =
   styles: [`
     :host { position: relative; display: inline-flex; }
     .trigger { display: grid; place-items: center; width: 34px; height: 34px; color: var(--text-3); background: none; border: 0; border-radius: 8px; }
-    .trigger:hover, .trigger[aria-expanded='true'] { color: var(--brand); background: var(--brand-50); }
-    .palette { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40; width: 300px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-md); }
+    .trigger:hover, .trigger[aria-expanded='true'] { color: var(--text); background: var(--surface-3); }
+    .palette { position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 40; width: 300px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md); }
     .tabs { display: flex; gap: 2px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
     .tabs button { display: grid; place-items: center; width: 34px; height: 30px; color: var(--text-3); background: none; border: 0; border-radius: 7px; }
-    .tabs button.active { color: var(--brand-600); background: var(--brand-50); }
+    .tabs button.active { color: var(--text); background: var(--surface-3); }
     .tabs .icon { font-size: 18px; }
     .grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; max-height: 190px; padding-top: 6px; overflow-y: auto; }
     .emoji { display: grid; place-items: center; height: 32px; padding: 0; background: none; border: 0; border-radius: 7px; font-size: 20px; transition: transform .1s, background .1s; }

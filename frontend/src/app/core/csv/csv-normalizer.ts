@@ -21,7 +21,15 @@ export interface ParsedCsv {
   delimiter: string;
   hasHeader: boolean;
   warnings: string[];
+  /** Cellules de la première ligne (en-têtes, ou première ligne de données). */
+  headers: string[];
+  /** Colonnes retenues (index) ; productCol = -1 : pas de colonne produit. */
+  textCol: number;
+  productCol: number;
 }
+
+/** Choix manuel des colonnes (étape « Colonnes » de l'import). */
+export interface ColumnChoice { textCol: number; productCol: number; }
 
 const TEXT_HEADERS = ['text', 'texte', 'avis', 'review', 'reviews', 'commentaire', 'comment', 'message'];
 const PRODUCT_HEADERS = ['product', 'produit', 'article', 'item'];
@@ -77,7 +85,7 @@ export function parseRecords(content: string, delimiter: string): { cells: strin
   return records;
 }
 
-export function parseReviewsCsv(raw: string): ParsedCsv {
+export function parseReviewsCsv(raw: string, choice?: ColumnChoice): ParsedCsv {
   const content = raw.replace(/^﻿/, '');
   const warnings: string[] = [];
   const delimiter = detectDelimiter(content.split(/\r?\n/, 1)[0] ?? '');
@@ -96,6 +104,7 @@ export function parseReviewsCsv(raw: string): ParsedCsv {
       productCol = p;
     }
   }
+  if (choice) { textCol = choice.textCol; productCol = choice.productCol; }
 
   const rows: CsvRow[] = [];
   let truncatedText = 0;
@@ -120,7 +129,7 @@ export function parseReviewsCsv(raw: string): ParsedCsv {
     warnings.push(`Limite de ${MAX_ROWS} avis : ${rows.length - MAX_ROWS} ligne(s) ignorée(s)`);
     rows.length = MAX_ROWS;
   }
-  return { rows, delimiter, hasHeader, warnings };
+  return { rows, delimiter, hasHeader, warnings, headers: records[0]?.cells ?? [], textCol, productCol };
 }
 
 const quote = (v: string) => `"${v.replace(/"/g, '""')}"`;

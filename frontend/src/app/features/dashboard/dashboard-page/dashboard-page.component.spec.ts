@@ -38,8 +38,9 @@ describe('DashboardPageComponent', () => {
     http.expectOne('/api/dashboard/products').flush([]);
     statsReq().flush(stats(2, 1, 1));
     fixture.detectChanges();
-    expect(text()).toContain('50%');
-    expect(text()).toContain('25%');
+    // format français : espace fine insécable avant « % »
+    expect(text()).toContain('50 %');
+    expect(text()).toContain('25 %');
     expect(text()).toContain('Avis partagés');
     expect(fixture.componentInstance.chartData().datasets[0].data).toEqual([2, 1, 1]);
     expect((fixture.nativeElement as HTMLElement).querySelector('canvas')).toBeTruthy();

@@ -17,8 +17,16 @@ public class DashboardController {
     private final ReviewRepository repo;
 
     @GetMapping("/stats")
-    public Dtos.DashboardStats stats(@RequestParam(required = false) String product) {
-        return service.stats(product);
+    public Dtos.DashboardStats stats(@RequestParam(required = false) String product,
+                                     @RequestParam(required = false) Integer days) {
+        return service.stats(product, days);
+    }
+
+    /** Avis par jour et par sentiment sur les N derniers jours (30 par défaut, 366 max). */
+    @GetMapping("/trend")
+    public List<Dtos.TrendPoint> trend(@RequestParam(required = false) String product,
+                                       @RequestParam(defaultValue = "30") int days) {
+        return service.trend(product, days);
     }
 
     @GetMapping("/products")

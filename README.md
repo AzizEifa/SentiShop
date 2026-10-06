@@ -148,11 +148,17 @@ Dans IntelliJ : SDK = Java 21, lancer `SentimentAnalysisApplication` avec comme
 |---|---|---|
 | F1 | Analyser un avis saisi au clavier | page **Analyser un avis** → `POST /api/reviews/analyze` |
 | F2 | Importer un CSV et analyser chaque ligne | page **Importer des avis** → `POST /api/reviews/import` (lots de 50, barre de progression) |
-| F3 | Tableau de bord % positif / neutre / négatif + graphique | page **Vue d'ensemble** : cartes KPI + camembert |
+| F3 | Tableau de bord % positif / neutre / négatif + graphique | page **Tableau de bord** : verdict, score net, KPI (somme = 100 %), anneau, tendance (`GET /api/dashboard/trend?days=`), filtre période (`GET /api/dashboard/stats?days=`) |
 | F4 | Cache : un avis déjà analysé ne repart pas vers l'API | `SentimentService` : Caffeine → table `review_analysis` → API ; clé `SHA-256(texte normalisé + modèle)` ; mention « depuis le cache » |
 | B1 | Résumé des avis négatifs (BART) | bouton **Résumer les avis négatifs** → `POST /api/dashboard/summary/negative` |
 | B2 | Filtrer par produit, exporter en CSV | filtre produit + bouton **Exporter CSV** → `GET /api/reviews/export` |
-| B3 | Comparer avec un modèle anglais seul sur l'arabe | page **Comparer les modèles** → `POST /api/reviews/compare` : multilingue vs `twitter-roberta-base-sentiment-latest` |
+| B3 | Comparer avec un modèle anglais seul sur l'arabe | page **Comparer les modèles** → `POST /api/reviews/compare` : multilingue vs `twitter-roberta-base-sentiment-latest` (exactitude, accord, matrices de confusion) |
+| — | Rechercher, trier, filtrer la liste des avis | page **Avis clients** → `GET /api/reviews?q=&label=&product=&days=&sort=score,desc&page=&size=` (tri : `createdAt`, `score`, `product`, `authorName`) |
+
+**Score de satisfaction** : score net = % d'avis positifs − % d'avis négatifs (−100 à +100), seuils réglables dans
+`frontend/src/app/core/format.ts` (`SATISFACTION_RULES`). Il repose sur le sentiment détecté par l'IA, pas sur les étoiles.
+La **langue** affichée est estimée dans le navigateur (`core/language.ts`) : le backend ne la stocke pas.
+Les **notifications** (avis temps réel, fin d'import, IA indisponible) vivent le temps de la session : le serveur n'en garde pas d'historique.
 
 ### Format du CSV
 

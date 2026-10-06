@@ -1,18 +1,20 @@
 import { Component, ElementRef, HostListener, OnDestroy, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { AuthService } from '../../core/auth/auth.service';
 import { ClientApi } from '../../core/api/client-api.service';
 import { ProductApi } from '../../core/api/product-api.service';
 import { ApiProblem, MyReview, Product } from '../../core/models/models';
-import { formatRelative } from '../../core/format';
+import { formatNumber, formatRelative } from '../../core/format';
 import { StarsComponent } from '../../shared/stars/stars.component';
 import { EmojiPickerComponent } from '../../shared/emoji-picker/emoji-picker.component';
 import { ConfirmService } from '../../shared/confirm-dialog/confirm-dialog.component';
 import { LightboxService } from '../../shared/lightbox/lightbox.component';
 import { imageProblem } from '../products/products-page.component';
 
+/** Mêmes limites que le backend (MeController). */
 export const MIN_TEXT = 10;
 export const MAX_TEXT = 2000;
 export const MAX_PHOTOS = 3;
@@ -20,55 +22,52 @@ export const MAX_PHOTOS = 3;
 /** Photo du formulaire : déjà publiée (url) ou nouvelle (fichier + aperçu local). */
 export interface Photo { url: string; file?: File; }
 
+/** Espace client — déposer (ou modifier, ?edit=ID) un avis : produit, note, texte avec émojis, photos. */
 @Component({
   selector: 'app-client-space',
   standalone: true,
-  imports: [FormsModule, StarsComponent, EmojiPickerComponent],
+  imports: [FormsModule, RouterLink, StarsComponent, EmojiPickerComponent],
   template: `
-    <section class="hero">
+    <header class="page-header">
       <div>
-        <span class="eyebrow">Mon espace</span>
-        <h1>Bonjour {{ firstName() }}, votre avis compte.</h1>
-        <p>Partagez votre expérience : chaque avis aide la boutique à améliorer ses produits et son service.</p>
+        <p class="eyebrow">Bonjour {{ firstName() }}</p>
+        <h1>{{ editingId() ? 'Modifier mon avis' : 'Déposer un avis' }}</h1>
+        <p class="subtitle">{{ editingId() ? 'Vos changements remplacent l’avis publié ; le texte sera de nouveau analysé.' : 'Partagez votre expérience : chaque avis aide la boutique à améliorer ses produits et son service.' }}</p>
       </div>
-      <div class="hero-stat">
-        <span class="hero-value tabular">{{ total() }}</span>
-        <span>avis publié{{ total() > 1 ? 's' : '' }}</span>
+      <div class="page-actions">
+        <a class="btn btn-secondary" routerLink="/espace/avis"><span class="icon">rate_review</span>Mes avis ({{ total() }})</a>
       </div>
-    </section>
+    </header>
 
     <div class="layout">
       <section class="card compose" [class.editing]="editingId()">
         @if (sent(); as r) {
-          <div class="thanks fade-in">
+          <div class="thanks fade-in" role="status">
             <span class="thanks-icon"><span class="icon fill">check_circle</span></span>
             <h2>Merci {{ firstName() }} !</h2>
             <p>Votre avis sur <strong>{{ r.product }}</strong> a bien été publié. L’équipe de la boutique en est informée.</p>
             <app-stars [value]="r.rating" size="md" />
-            <button class="btn btn-primary" type="button" (click)="reset()"><span class="icon">edit</span>Écrire un autre avis</button>
+            <div class="thanks-actions">
+              <a class="btn btn-secondary" routerLink="/espace/avis"><span class="icon">rate_review</span>Voir mes avis</a>
+              <button class="btn btn-primary" type="button" (click)="reset()"><span class="icon">edit</span>Écrire un autre avis</button>
+            </div>
           </div>
         } @else {
-          <div class="card-header">
-            <div>
-              <h2>{{ editingId() ? 'Modifier mon avis' : 'Donner mon avis' }}</h2>
-              <p class="card-subtitle">{{ editingId() ? 'Vos changements remplacent l’avis publié.' : 'Trois informations suffisent, une photo en bonus.' }}</p>
-            </div>
-            @if (editingId()) { <button class="btn btn-ghost btn-sm" type="button" (click)="reset()"><span class="icon">close</span>Annuler</button> }
-          </div>
-          <form class="card-body form" (submit)="$event.preventDefault(); submit()" novalidate>
+          <form class="form" (submit)="$event.preventDefault(); submit()" novalidate aria-label="Formulaire d’avis">
             @if (error()) { <div class="alert alert-danger fade-in" role="alert"><span class="icon">error</span><div>{{ error() }}</div></div> }
 
             <!-- 1. Produit -->
             <div class="field">
               <span class="label" id="product-label"><span><span class="step">1</span>Produit concerné</span></span>
               <div class="picker" [class.open]="pickerOpen()">
-                <button class="picker-trigger input" type="button" (click)="togglePicker()" aria-haspopup="listbox" [attr.aria-expanded]="pickerOpen()" aria-labelledby="product-label" [class.invalid]="!!fieldError('product')">
+                <button class="picker-trigger input" type="button" (click)="togglePicker()" aria-haspopup="listbox" [attr.aria-expanded]="pickerOpen()" aria-labelledby="product-label"
+                        [class.invalid]="!!fieldError('product')" [attr.aria-describedby]="fieldError('product') ? 'product-error' : null">
                   @if (selectedProduct(); as p) {
                     <span class="thumb-xs">@if (p.imageUrl) { <img [src]="p.imageUrl" alt="" /> } @else { <span class="icon">inventory_2</span> }</span>
                     <span class="picker-name">{{ p.name }}</span>
                     @if (p.category) { <span class="tag">{{ p.category }}</span> }
                   } @else {
-                    <span class="icon muted">inventory_2</span><span class="muted">Choisir un produit</span>
+                    <span class="icon muted">inventory_2</span><span class="muted">Choisir un produit du catalogue</span>
                   }
                   <span class="icon chevron">expand_more</span>
                 </button>
@@ -89,7 +88,7 @@ export interface Photo { url: string; file?: File; }
                   </div>
                 }
               </div>
-              @if (fieldError('product'); as msg) { <span class="field-error"><span class="icon">error</span>{{ msg }}</span> }
+              @if (fieldError('product'); as msg) { <span class="field-error" id="product-error"><span class="icon">error</span>{{ msg }}</span> }
             </div>
 
             <!-- 2. Note -->
@@ -101,10 +100,11 @@ export interface Photo { url: string; file?: File; }
 
             <!-- 3. Texte + émojis + photos -->
             <div class="field">
-              <label class="label" for="text"><span><span class="step">3</span>Votre avis</span><span class="optional tabular" [class.warn]="text.length > maxText - 100">{{ text.length }} / {{ maxText }}</span></label>
+              <label class="label" for="text"><span><span class="step">3</span>Votre avis</span><span class="optional tabular" [class.warn]="text.length > maxText - 100">{{ text.length }} / {{ fmt(maxText) }}</span></label>
+              <span class="hint" id="text-rules">Entre {{ minText }} et {{ fmt(maxText) }} caractères, en français, anglais ou arabe. Les émojis sont acceptés.</span>
               <div class="editor" [class.invalid]="!!fieldError('text')" [class.dragging]="dragging()"
                    (dragover)="$event.preventDefault(); dragging.set(true)" (dragleave)="dragging.set(false)" (drop)="onDrop($event)">
-                <textarea #textArea id="text" name="text" dir="auto" rows="5" [maxlength]="maxText" [(ngModel)]="text"
+                <textarea #textArea id="text" name="text" dir="auto" rows="6" [maxlength]="maxText" [(ngModel)]="text" aria-describedby="text-rules"
                           (keydown.control.enter)="submit()" (keydown.meta.enter)="submit()"
                           placeholder="Qu’avez-vous aimé ou moins aimé ? Qualité, livraison, service client…"></textarea>
                 @if (photos().length) {
@@ -123,19 +123,18 @@ export interface Photo { url: string; file?: File; }
                     <span class="icon">add_photo_alternate</span><span class="tool-label">Photo</span>
                   </label>
                   <input id="photo-input" type="file" accept="image/jpeg,image/png,image/webp,image/gif" multiple [disabled]="photos().length >= maxPhotos" (change)="onPhotos($event)" />
-                  <span class="muted bar-hint">{{ photos().length }}/{{ maxPhotos }} photos · glissez-les ici</span>
+                  <span class="muted bar-hint">{{ photos().length }}/{{ maxPhotos }} photos · JPG, PNG, WEBP ou GIF · 3 Mo max</span>
                 </div>
               </div>
               @if (photoError()) { <span class="field-error"><span class="icon">error</span>{{ photoError() }}</span> }
               @if (fieldError('text'); as msg) { <span class="field-error"><span class="icon">error</span>{{ msg }}</span> }
-              @else if (!photoError()) { <span class="hint">Français, anglais ou arabe — émojis bienvenus 🙂</span> }
             </div>
 
             <div class="actions">
-              <button class="btn btn-primary btn-lg" type="submit" [disabled]="loading()">
-                @if (loading()) { <span class="spinner"></span>{{ editingId() ? 'Enregistrement…' : 'Publication…' }} }
-                @else { <span class="icon">{{ editingId() ? 'save' : 'send' }}</span>{{ editingId() ? 'Enregistrer les modifications' : 'Publier mon avis' }} }
+              <button class="btn btn-primary btn-lg" type="submit" [class.is-loading]="loading()" [attr.aria-busy]="loading()">
+                <span class="icon">{{ editingId() ? 'save' : 'send' }}</span>{{ editingId() ? 'Enregistrer les modifications' : 'Publier mon avis' }}
               </button>
+              @if (editingId()) { <button class="btn btn-ghost" type="button" (click)="cancelEdit()">Annuler</button> }
               <span class="hint">Publié sous le nom <strong>{{ auth.user()?.fullName }}</strong></span>
             </div>
           </form>
@@ -143,13 +142,23 @@ export interface Photo { url: string; file?: File; }
       </section>
 
       <aside class="side">
+        <section class="card tips">
+          <h2>Un avis utile, c’est…</h2>
+          <ul>
+            <li><span class="icon">check</span>Sincère : la note et le texte peuvent dire des choses différentes, écrivez ce que vous pensez vraiment.</li>
+            <li><span class="icon">check</span>Concret : ce qui vous a plu ou déplu, et pourquoi.</li>
+            <li><span class="icon">check</span>Illustré : une photo aide les autres clients.</li>
+            <li><span class="icon">check</span>Respectueux : sans données personnelles.</li>
+          </ul>
+        </section>
+
         <section class="card">
-          <div class="card-header"><div><h2>Mes avis</h2><p class="card-subtitle">{{ total() ? 'Modifiez ou supprimez-les à tout moment' : 'Votre historique' }}</p></div></div>
+          <div class="card-header"><div><h2>Derniers avis publiés</h2><p class="card-subtitle">Modifiables à tout moment</p></div></div>
           @if (loadingList()) {
-            <div class="list-skeleton">@for (i of [1, 2, 3]; track i) { <span class="skeleton" style="height: 76px"></span> }</div>
+            <div class="list-skeleton">@for (i of [1, 2]; track i) { <span class="skeleton" style="height: 64px"></span> }</div>
           } @else if (reviews().length) {
             <ul class="mine">
-              @for (r of reviews(); track r.id) {
+              @for (r of reviews().slice(0, 3); track r.id) {
                 <li [class.new]="r.id === highlight()" [class.current]="r.id === editingId()">
                   <div class="mine-head">
                     <span class="tag">{{ r.product }}</span><app-stars [value]="r.rating" />
@@ -159,107 +168,82 @@ export interface Photo { url: string; file?: File; }
                     </span>
                   </div>
                   <p class="review-text" dir="auto">{{ r.text }}</p>
-                  @if (r.imageUrls.length) {
-                    <div class="thumbs">@for (u of r.imageUrls; track u; let i = $index) { <button class="thumb sm" type="button" (click)="lightbox.open(r.imageUrls, i)" aria-label="Agrandir la photo"><img [src]="u" alt="" loading="lazy" /></button> }</div>
-                  }
-                  <div class="mine-foot"><span class="published"><span class="icon fill">check_circle</span>Publié</span><span class="muted">{{ relative(r.createdAt) }}@if (r.updatedAt) { · modifié }</span></div>
+                  <span class="muted small">{{ relative(r.createdAt) }}@if (r.updatedAt) { · modifié }</span>
                 </li>
               }
             </ul>
+            @if (reviews().length > 3) { <div class="card-footer"><a class="link-btn" routerLink="/espace/avis">Voir les {{ total() }} avis<span class="icon">arrow_forward</span></a></div> }
           } @else {
-            <div class="empty-state"><div class="empty-icon"><span class="icon">rate_review</span></div><h3>Aucun avis pour l’instant</h3><p>Votre premier avis apparaîtra ici.</p></div>
+            <p class="none-yet muted">Votre premier avis apparaîtra ici.</p>
           }
-        </section>
-
-        <section class="card tips">
-          <h3><span class="icon">lightbulb</span>Un avis utile, c’est…</h3>
-          <ul>
-            <li>Concret : ce qui vous a plu ou déplu, et pourquoi.</li>
-            <li>Illustré : une photo vaut mille mots 📸</li>
-            <li>Respectueux : sans données personnelles.</li>
-          </ul>
         </section>
       </aside>
     </div>
   `,
   styles: [`
-    .hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 24px; padding: 28px 32px; color: #fff; background: radial-gradient(600px 220px at 100% 0%, #34d39933, transparent 70%), linear-gradient(135deg, #0f5c46, #12785c); border-radius: 18px; box-shadow: var(--shadow-sm); }
-    .eyebrow { color: #a7e3cb; font-size: 12.5px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; }
-    .hero h1 { margin-top: 6px; color: #fff; font-size: 26px; letter-spacing: -.02em; }
-    .hero p { max-width: 560px; margin-top: 6px; color: #cdeee0; }
-    .hero-stat { display: grid; justify-items: center; min-width: 120px; padding: 14px 20px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); border-radius: 14px; font-size: 13px; color: #d7f2e6; }
-    .hero-value { color: #fff; font-size: 30px; font-weight: 700; line-height: 1.1; }
-    .layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr); align-items: start; gap: 20px; }
+    .eyebrow { margin-bottom: 2px; color: var(--primary-text); font-size: 13px; font-weight: 600; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr); align-items: start; gap: 20px; }
     .layout > * { min-width: 0; }
-    .compose.editing { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-50), var(--shadow-sm); }
-    .form { display: grid; gap: 22px; }
-    .step { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 8px; color: var(--brand-600); background: var(--brand-100); border-radius: 50%; font-size: 11.5px; font-weight: 700; }
+    .compose.editing { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-50); }
+    .form { display: grid; gap: 24px; padding: 24px; }
+    .step { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 8px; color: #fff; background: var(--navy); border-radius: 50%; font-size: 11px; font-weight: 650; }
     .label > span:first-child { display: inline-flex; align-items: center; }
-    .optional.warn { color: var(--warn); }
-    .field-error { display: flex; align-items: center; gap: 4px; color: var(--neg-text); font-size: 12.5px; } .field-error .icon { font-size: 15px; }
-    /* sélecteur de produit */
+    .optional.warn { color: var(--neu-text); font-weight: 600; }
     .picker { position: relative; }
-    .picker-trigger { display: flex; align-items: center; gap: 10px; height: 48px; text-align: start; cursor: pointer; }
-    .picker-trigger.invalid { border-color: var(--neg); }
+    .picker-trigger { display: flex; align-items: center; gap: 10px; height: 46px; text-align: start; cursor: pointer; }
     .picker-name { flex: 1; overflow: hidden; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
     .picker-trigger .muted { flex: 1; } .picker-trigger .icon.muted { flex: 0; }
     .chevron { color: var(--text-4); transition: transform .15s; } .picker.open .chevron { transform: rotate(180deg); }
-    .thumb-xs, .thumb-sm { display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; color: var(--brand); background: var(--brand-50); border-radius: 8px; }
-    .thumb-xs { width: 32px; height: 32px; } .thumb-sm { width: 40px; height: 40px; }
+    .thumb-xs, .thumb-sm { display: grid; place-items: center; flex: 0 0 auto; overflow: hidden; color: var(--text-4); background: var(--surface-3); border-radius: var(--r-sm); }
+    .thumb-xs { width: 30px; height: 30px; } .thumb-sm { width: 38px; height: 38px; }
     .thumb-xs img, .thumb-sm img { width: 100%; height: 100%; object-fit: cover; }
     .thumb-xs .icon, .thumb-sm .icon { font-size: 18px; }
-    .picker-panel { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-md); }
+    .picker-panel { position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--shadow-md); }
     .picker-panel ul { max-height: 260px; margin: 8px 0 0; padding: 0; overflow-y: auto; list-style: none; }
-    .picker-panel li button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; background: none; border: 0; border-radius: 8px; text-align: start; }
-    .picker-panel li button:hover { background: var(--surface-2); } .picker-panel li button.selected { background: var(--brand-50); }
-    .option-text { display: grid; flex: 1; line-height: 1.3; } .option-text strong { font-weight: 550; font-size: 14px; } .option-text small { color: var(--text-3); font-size: 12px; }
-    .check { color: var(--brand); }
+    .picker-panel li button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 8px; background: none; border: 0; border-radius: var(--r); text-align: start; }
+    .picker-panel li button:hover, .picker-panel li button.selected { background: var(--primary-50); }
+    .option-text { display: grid; flex: 1; line-height: 1.3; } .option-text strong { font-weight: 550; font-size: 13.5px; } .option-text small { color: var(--text-3); font-size: 12px; }
+    .check { color: var(--primary); }
     .none { padding: 14px; color: var(--text-3); text-align: center; font-size: 13.5px; }
-    /* éditeur : texte + photos + barre d'outils */
-    .editor { overflow: visible; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; box-shadow: var(--shadow-xs); transition: border-color .15s, box-shadow .15s; }
-    .editor:focus-within { border-color: var(--brand); box-shadow: var(--focus); }
+    .editor { overflow: visible; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-lg); box-shadow: var(--shadow-xs); transition: border-color .15s, box-shadow .15s; }
+    .editor:focus-within { border-color: var(--primary); box-shadow: var(--focus); }
     .editor.invalid { border-color: var(--neg); }
-    .editor.dragging { border-color: var(--brand); background: var(--brand-50); }
-    .editor textarea { display: block; width: 100%; min-height: 140px; padding: 12px 14px; color: var(--text); background: transparent; border: 0; outline: none; resize: vertical; line-height: 1.6; }
+    .editor.dragging { border-color: var(--primary); background: var(--primary-50); }
+    .editor textarea { display: block; width: 100%; min-height: 150px; padding: 13px 15px; color: var(--text); background: transparent; border: 0; outline: none; resize: vertical; font-size: 14.5px; line-height: 1.65; }
     .editor textarea::placeholder { color: var(--text-4); }
     .photos { display: flex; gap: 10px; flex-wrap: wrap; padding: 10px 14px 12px; border-top: 1px dashed var(--border); }
     .photo { position: relative; }
-    .photo .thumb { width: 72px; height: 72px; }
-    .photo .remove { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; color: #fff; background: var(--text); border: 2px solid var(--surface); border-radius: 50%; }
+    .photo .thumb { width: 76px; height: 76px; }
+    .photo .remove { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; color: #fff; background: var(--navy); border: 2px solid var(--surface); border-radius: 50%; }
     .photo .remove .icon { font-size: 14px; }
-    .editor-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 10px 10px; }
-    .tool { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; color: var(--text-3); border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 550; }
-    .tool:hover { color: var(--brand); background: var(--brand-50); } .tool.disabled { opacity: .45; pointer-events: none; }
+    .editor-bar { display: flex; align-items: center; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--border); background: var(--surface-2); border-radius: 0 0 var(--r-lg) var(--r-lg); }
+    .tool { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 9px; color: var(--text-2); border-radius: var(--r); cursor: pointer; font-size: 13px; font-weight: 550; }
+    .tool:hover { color: var(--text); background: var(--surface-3); } .tool.disabled { opacity: .45; pointer-events: none; }
+    .editor-bar:has(#photo-input:focus-visible) .tool { box-shadow: var(--focus); }
     #photo-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
     .bar-hint { margin-left: auto; font-size: 12px; }
-    .actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    .spinner { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    .thanks { display: grid; justify-items: center; gap: 12px; padding: 48px 28px; text-align: center; }
-    .thanks-icon { display: grid; place-items: center; width: 64px; height: 64px; color: var(--pos); background: var(--pos-soft); border-radius: 50%; animation: pop .45s cubic-bezier(.2, .9, .3, 1.4) both; }
-    .thanks-icon .icon { font-size: 38px; }
+    .actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .thanks { display: grid; justify-items: center; gap: 12px; padding: 56px 28px; text-align: center; }
+    .thanks-icon { display: grid; place-items: center; width: 52px; height: 52px; color: var(--pos); background: var(--pos-soft); border-radius: 50%; animation: pop .45s cubic-bezier(.2, .9, .3, 1.4) both; }
+    .thanks-icon .icon { font-size: 28px; }
     @keyframes pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
-    .thanks h2 { font-size: 22px; } .thanks p { max-width: 380px; color: var(--text-2); }
-    .thanks .btn { margin-top: 8px; }
+    .thanks h2 { font-size: 20px; letter-spacing: -.02em; } .thanks p { max-width: 400px; color: var(--text-2); }
+    .thanks-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
     .side { display: grid; gap: 16px; min-width: 0; }
-    .mine { max-height: 620px; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
-    .mine li { display: grid; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); transition: background .2s; }
+    .tips { padding: 20px; }
+    .tips ul { display: grid; gap: 10px; margin: 12px 0 0; padding: 0; list-style: none; color: var(--text-2); font-size: 13.5px; }
+    .tips li { display: flex; gap: 8px; } .tips li .icon { color: var(--pos); font-size: 18px; }
+    .mine { margin: 0; padding: 0; list-style: none; }
+    .mine li { display: grid; gap: 6px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
     .mine li:last-child { border-bottom: 0; }
-    .mine li.new { background: var(--brand-50); animation: fade-in .4s ease both; }
-    .mine li.current { background: var(--brand-50); box-shadow: inset 3px 0 0 var(--brand); }
+    .mine li.new { background: var(--pos-soft); animation: fade-in .4s ease both; }
+    .mine li.current { background: var(--primary-50); box-shadow: inset 3px 0 0 var(--primary); }
     .mine-head { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
-    .mine-actions { display: flex; gap: 2px; margin-left: auto; opacity: .6; transition: opacity .15s; }
-    .mine li:hover .mine-actions, .mine li:focus-within .mine-actions { opacity: 1; }
-    .icon-btn { display: grid; place-items: center; width: 30px; height: 30px; color: var(--text-3); background: none; border: 0; border-radius: 7px; }
-    .icon-btn .icon { font-size: 18px; } .icon-btn:hover { color: var(--brand); background: var(--surface); } .icon-btn.danger:hover { color: var(--neg); }
-    .mine-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; }
-    .published { display: inline-flex; align-items: center; gap: 4px; color: var(--pos-text); font-weight: 600; }
-    .published .icon { font-size: 15px; }
+    .mine-actions { display: flex; gap: 2px; margin-left: auto; }
     .list-skeleton { display: grid; gap: 10px; padding: 16px 20px; }
-    .tips { padding: 18px 20px; }
-    .tips h3 { display: flex; align-items: center; gap: 8px; } .tips h3 .icon { color: #f5a524; font-size: 20px; }
-    .tips ul { display: grid; gap: 6px; margin: 10px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13.5px; }
-    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .hero { flex-direction: column; align-items: flex-start; padding: 24px; } .bar-hint { display: none; } .mine-actions { opacity: 1; } }
+    .none-yet { padding: 18px 20px; font-size: 13.5px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; } .bar-hint { display: none; } }
+    @media (max-width: 480px) { .form { padding: 18px; } .actions .btn-lg { width: 100%; } }
   `],
 })
 export class ClientSpaceComponent implements OnInit, OnDestroy {
@@ -269,12 +253,18 @@ export class ClientSpaceComponent implements OnInit, OnDestroy {
   private readonly confirm = inject(ConfirmService);
   private readonly snack = inject(MatSnackBar);
   private readonly host = inject(ElementRef<HTMLElement>);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   readonly lightbox = inject(LightboxService);
   private readonly textArea = viewChild<ElementRef<HTMLTextAreaElement>>('textArea');
   private readonly pickerSearch = viewChild<ElementRef<HTMLInputElement>>('pickerSearch');
 
   readonly maxText = MAX_TEXT;
+  readonly minText = MIN_TEXT;
   readonly maxPhotos = MAX_PHOTOS;
+  readonly fmt = formatNumber;
+  /** Modification ouverte depuis « Mes avis » (?edit=ID) : on y retourne ensuite. */
+  private editFromList = false;
   product = '';
   rating = 0;
   text = '';
@@ -303,6 +293,8 @@ export class ClientSpaceComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.productApi.list().subscribe({ next: (p) => this.products.set(p), error: () => {} });
+    const preset = this.route.snapshot.queryParamMap.get('produit');
+    if (preset) this.product = preset;
     this.loadMine();
   }
 
@@ -407,6 +399,7 @@ export class ClientSpaceComponent implements OnInit, OnDestroy {
           this.reviews.update((list) => list.map((r) => (r.id === id ? review : r)));
           this.snack.open('Votre avis a été mis à jour', 'OK', { duration: 3500 });
           this.reset();
+          if (this.editFromList) this.router.navigate(['/espace/avis']);
         } else {
           this.reviews.update((list) => [review, ...list]);
           this.total.update((n) => n + 1);
@@ -438,6 +431,11 @@ export class ClientSpaceComponent implements OnInit, OnDestroy {
     this.text = r.text;
     this.photos.set(r.imageUrls.map((url) => ({ url })));
     this.host.nativeElement.querySelector('.compose')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  cancelEdit() {
+    this.reset();
+    if (this.editFromList) this.router.navigate(['/espace/avis']);
   }
 
   async remove(r: MyReview) {
@@ -480,8 +478,17 @@ export class ClientSpaceComponent implements OnInit, OnDestroy {
 
   private loadMine() {
     this.loadingList.set(true);
-    this.api.mine().subscribe({
-      next: (page) => { this.reviews.set(page.content); this.total.set(page.totalElements); this.loadingList.set(false); },
+    this.api.mine(0, 50).subscribe({
+      next: (page) => {
+        this.reviews.set(page.content);
+        this.total.set(page.totalElements);
+        this.loadingList.set(false);
+        const id = Number(this.route.snapshot.queryParamMap.get('edit'));
+        // avis transmis par « Mes avis » (state de navigation), sinon cherché parmi les 50 plus récents
+        const passed = (history.state as { review?: MyReview } | null)?.review;
+        const target = !id ? undefined : passed?.id === id ? passed : page.content.find((r) => r.id === id);
+        if (target) { this.edit(target); this.editFromList = true; }
+      },
       error: () => this.loadingList.set(false),
     });
   }

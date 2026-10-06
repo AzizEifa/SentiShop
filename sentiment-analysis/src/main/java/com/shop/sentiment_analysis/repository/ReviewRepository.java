@@ -10,13 +10,33 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
-    /** product = "" signifie « tous les produits » (y compris les avis sans produit). */
-    @Query("select r.label, count(r) from Review r where (:product = '' or r.product = :product) group by r.label")
-    List<Object[]> countByLabel(@Param("product") String product);
+    /** product = "" signifie « tous les produits » (y compris les avis sans produit). since = Instant.EPOCH : toute la période. */
+    @Query("select r.label, count(r) from Review r where (:product = '' or r.product = :product) and r.createdAt >= :since group by r.label")
+    List<Object[]> countByLabel(@Param("product") String product, @Param("since") Instant since);
+
+    /** Série temporelle : [createdAt, label] des avis depuis une date (regroupés par jour côté service). */
+    @Query("select r.createdAt, r.label from Review r where (:product = '' or r.product = :product) and r.createdAt >= :since")
+    List<Object[]> timeline(@Param("product") String product, @Param("since") Instant since);
+
+    /**
+     * Liste filtrée des avis (back-office). Le tri vient du Pageable (date, confiance, produit, auteur…).
+     * q cherche dans le texte et dans le nom de l'auteur ; label null = tous les sentiments.
+     */
+    @Query("""
+           select r from Review r
+           where (:label is null or r.label = :label)
+             and (:product = '' or lower(r.product) like lower(concat('%', :product, '%')))
+             and (:q = '' or lower(r.text) like lower(concat('%', :q, '%'))
+                  or lower(coalesce(r.authorName, '')) like lower(concat('%', :q, '%')))
+             and r.createdAt >= :since
+           """)
+    Page<Review> filter(@Param("label") SentimentLabel label, @Param("product") String product,
+                        @Param("q") String q, @Param("since") Instant since, Pageable pageable);
 
     /** Avis déposés par un client donné (espace client). */
     Page<Review> findByAuthorIdOrderByCreatedAtDesc(Long authorId, Pageable pageable);

@@ -37,8 +37,8 @@ describe('ComparePageComponent (B3)', () => {
     fixture.detectChanges();
 
     expect(api.compare).toHaveBeenCalledTimes(ARABIC_CASES.length);
-    expect(fixture.componentInstance.accuracy()).toEqual({ done: 6, multi: 6, english: 2, agree: 2 });
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('6 / 6');
+    expect(fixture.componentInstance.accuracy()).toEqual({ done: 12, multi: 12, english: 4, agree: 4 });
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('12 / 12');
   });
 
   it("un échec n'arrête pas la comparaison, un quota dépassé si", async () => {

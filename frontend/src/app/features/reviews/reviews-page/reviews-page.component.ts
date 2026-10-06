@@ -1,228 +1,342 @@
 import { Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { PercentPipe } from '@angular/common';
 import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { ReviewApi } from '../../../core/api/review-api.service';
-import { Review, Sentiment } from '../../../core/models/models';
-import { SENTIMENT_CLASS, formatNumber, formatRelative } from '../../../core/format';
-import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
-import { ConfirmService } from '../../../shared/confirm-dialog/confirm-dialog.component';
-import { LightboxService } from '../../../shared/lightbox/lightbox.component';
-import { AdminApi } from '../../../core/api/admin-api.service';
-import { MatSnackBar } from '@angular/material/snack-bar';
-import { StarsComponent } from '../../../shared/stars/stars.component';
+import { DashboardApi } from '../../../core/api/dashboard-api.service';
+import { Review, ReviewSort, Sentiment } from '../../../core/models/models';
+import { SENTIMENT_LABEL, formatDateTime, formatNumber, formatRelative } from '../../../core/format';
+import { LANG_LABEL, detectLanguage } from '../../../core/language';
+import { downloadText, toCsv } from '../../../core/csv/csv-export';
 import { NotificationService } from '../../../core/notifications/notification.service';
+import { SentimentBadgeComponent } from '../../../shared/sentiment-badge/sentiment-badge.component';
+import { ConfidenceComponent } from '../../../shared/confidence/confidence.component';
+import { StarsComponent } from '../../../shared/stars/stars.component';
+import { EmptyStateComponent, ErrorStateComponent } from '../../../shared/states/states.component';
+import { ReviewDetailDrawerComponent } from '../../../shared/review-detail/review-detail-drawer.component';
 
-const FILTERS: { value: Sentiment | ''; label: string; dot?: string }[] = [
-  { value: '', label: 'Tous' },
-  { value: 'POSITIVE', label: 'Positifs', dot: 'pos' },
-  { value: 'NEUTRAL', label: 'Neutres', dot: 'neu' },
-  { value: 'NEGATIVE', label: 'Négatifs', dot: 'neg' },
+const SENTIMENTS: { value: Sentiment | ''; label: string }[] = [
+  { value: '', label: 'Tous les sentiments' },
+  { value: 'POSITIVE', label: 'Positifs' },
+  { value: 'NEUTRAL', label: 'Neutres' },
+  { value: 'NEGATIVE', label: 'Négatifs' },
 ];
+
+const PERIODS: { value: number | null; label: string }[] = [
+  { value: null, label: 'Toute la période' },
+  { value: 7, label: '7 derniers jours' },
+  { value: 30, label: '30 derniers jours' },
+  { value: 90, label: '90 derniers jours' },
+];
+
+const SIZES = [10, 20, 50];
 
 @Component({
   selector: 'app-reviews-page',
   standalone: true,
-  imports: [RouterLink, PercentPipe, SentimentBadgeComponent, StarsComponent],
+  imports: [RouterLink, SentimentBadgeComponent, ConfidenceComponent, StarsComponent, EmptyStateComponent, ErrorStateComponent, ReviewDetailDrawerComponent],
   template: `
     <header class="page-header">
       <div>
         <h1>Avis clients</h1>
-        <p class="subtitle">{{ fmt(total()) }} avis {{ label() || product() ? 'correspondent à vos filtres' : 'analysés' }}</p>
+        <p class="subtitle" aria-live="polite">{{ fmt(total()) }} avis {{ hasFilters() ? 'correspondent à vos filtres' : 'analysés par l’IA' }}</p>
       </div>
       <div class="page-actions">
-        <button class="btn btn-secondary" type="button" (click)="exportCsv()" [disabled]="exporting()"><span class="icon">{{ exporting() ? 'hourglass_top' : 'download' }}</span>Exporter la sélection</button>
+        <button class="btn btn-secondary" type="button" (click)="exportSelection()" [disabled]="!selected().size">
+          <span class="icon">checklist</span>Exporter la sélection@if (selected().size) { ({{ selected().size }}) }
+        </button>
+        <button class="btn btn-secondary" type="button" (click)="exportCsv()" [class.is-loading]="exporting()"
+                [title]="product() ? 'Tous les avis de « ' + product() + ' »' : 'Tous les avis de la boutique'">
+          <span class="icon">download</span>Export CSV{{ product() ? ' du produit' : '' }}
+        </button>
       </div>
     </header>
 
     <section class="card">
-      <div class="toolbar">
-        <div class="segmented" role="group" aria-label="Filtrer par sentiment">
-          @for (f of filters; track f.value) {
-            <button type="button" [class.active]="label() === f.value" [attr.aria-pressed]="label() === f.value" (click)="setLabel(f.value)">
-              @if (f.dot) { <span class="dot" [class]="'dot ' + f.dot"></span> }{{ f.label }}
-            </button>
-          }
-        </div>
+      <div class="filter-bar" role="search">
         <div class="input-group search">
           <span class="icon">search</span>
-          <input class="input" type="search" placeholder="Filtrer par produit…" aria-label="Filtrer par produit" [value]="product()" (input)="search$.next($any($event.target).value)" />
+          <input class="input" type="search" placeholder="Rechercher dans le texte ou l’auteur…" aria-label="Rechercher dans le texte ou l’auteur"
+                 [value]="q()" (input)="search$.next($any($event.target).value)" />
         </div>
-        @if (label() || product()) { <button class="btn btn-ghost btn-sm" type="button" (click)="clearFilters()"><span class="icon">close</span>Effacer les filtres</button> }
+        <label class="sr-only" for="f-label">Sentiment</label>
+        <select id="f-label" class="select" [value]="label()" (change)="setLabel($any($event.target).value)">
+          @for (s of sentiments; track s.value) { <option [value]="s.value">{{ s.label }}</option> }
+        </select>
+        <label class="sr-only" for="f-product">Produit</label>
+        <select id="f-product" class="select" [value]="product()" (change)="setProduct($any($event.target).value)">
+          <option value="">Tous les produits</option>
+          @for (p of products(); track p) { <option [value]="p">{{ p }}</option> }
+          @if (product() && !products().includes(product())) { <option [value]="product()">{{ product() }}</option> }
+        </select>
+        <label class="sr-only" for="f-days">Période</label>
+        <select id="f-days" class="select" [value]="days() ?? ''" (change)="setDays($any($event.target).value)">
+          @for (p of periods; track p.label) { <option [value]="p.value ?? ''">{{ p.label }}</option> }
+        </select>
+        @if (hasFilters()) {
+          <button class="btn btn-ghost btn-sm" type="button" (click)="clearFilters()"><span class="icon">filter_alt_off</span>Réinitialiser</button>
+        }
       </div>
 
-      <div class="table-wrap">
-        <table class="table">
-          <thead><tr><th>Avis</th><th>Auteur</th><th>Produit</th><th>Sentiment</th><th class="conf-col">Confiance</th><th>Date</th></tr></thead>
-          <tbody>
-            @if (loading() && !rows().length) {
-              @for (i of skeletonRows; track i) {
-                <tr><td><span class="skeleton" style="height: 14px; width: 90%"></span><span class="skeleton" style="height: 14px; width: 60%; margin-top: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 90px"></span></td><td><span class="skeleton" style="height: 14px; width: 80px"></span></td><td><span class="skeleton" style="height: 22px; width: 76px; border-radius: 99px"></span></td><td><span class="skeleton" style="height: 6px"></span></td><td><span class="skeleton" style="height: 14px; width: 70px"></span></td></tr>
-              }
-            } @else {
-              @for (r of rows(); track r.id) {
-                <tr class="clickable" [class.dim]="loading()" [class.fresh]="fresh().has(r.id)" [class.selected]="detail()?.id === r.id" (click)="open(r)" tabindex="0" (keydown.enter)="open(r)">
-                  <td class="text-col">
-                    <p class="review-text" dir="auto">{{ r.text }}</p>
-                    @if (r.imageUrls?.length) { <span class="has-photos"><span class="icon">photo_library</span>{{ r.imageUrls!.length }} photo{{ r.imageUrls!.length > 1 ? 's' : '' }}</span> }
-                  </td>
-                  <td class="author">
-                    @if (r.authorName) { <span class="author-name">{{ r.authorName }}</span>@if (r.rating) { <app-stars [value]="r.rating" /> } }
-                    @else { <span class="source"><span class="icon">upload_file</span>Import</span> }
-                  </td>
-                  <td>@if (r.product) { <span class="tag">{{ r.product }}</span> } @else { <span class="muted">—</span> }</td>
-                  <td><app-sentiment-badge [label]="r.label" /></td>
-                  <td class="conf-col"><div class="conf"><div class="meter" [class]="'meter ' + tone(r.label)"><span [style.width.%]="r.score * 100"></span></div><span class="tabular">{{ r.score | percent: '1.0-0' }}</span></div></td>
-                  <td class="nowrap muted" [title]="r.createdAt ?? ''">{{ relative(r.createdAt) }}</td>
-                </tr>
-              } @empty {
-                <tr><td colspan="6">
-                  <div class="empty-state">
-                    <div class="empty-icon"><span class="icon">{{ label() || product() ? 'filter_alt_off' : 'inbox' }}</span></div>
-                    @if (label() || product()) {
-                      <h3>Aucun avis ne correspond</h3><p>Essayez un autre produit ou un autre sentiment.</p>
-                      <div class="page-actions"><button class="btn btn-secondary" type="button" (click)="clearFilters()">Effacer les filtres</button></div>
+      @if (selected().size) {
+        <div class="selection-bar fade-in" role="status">
+          <span><strong>{{ selected().size }}</strong> avis sélectionné{{ selected().size > 1 ? 's' : '' }}</span>
+          <button class="link-btn" type="button" (click)="exportSelection()"><span class="icon">download</span>Exporter en CSV</button>
+          <button class="link-btn" type="button" (click)="clearSelection()">Désélectionner</button>
+        </div>
+      }
+
+      @if (error()) {
+        <app-error-state (retry)="fetch()" />
+      } @else {
+        <div class="table-wrap">
+          <table class="table stack reviews-table" [attr.aria-busy]="loading()">
+            <caption class="sr-only">Avis clients, triés par {{ sortLabel() }}</caption>
+            <thead>
+              <tr>
+                <th class="check-col"><input class="checkbox" type="checkbox" aria-label="Sélectionner les avis de la page" [checked]="pageSelected()" [indeterminate]="pagePartlySelected()" (change)="togglePage()" [disabled]="!rows().length" /></th>
+                <th class="product-col" [attr.aria-sort]="ariaSort('product')"><button class="th-sort" type="button" [class.active]="sort() === 'product'" (click)="setSort('product')">Produit<span class="icon">{{ sortIcon('product') }}</span></button></th>
+                <th class="author-col" [attr.aria-sort]="ariaSort('authorName')"><button class="th-sort" type="button" [class.active]="sort() === 'authorName'" (click)="setSort('authorName')">Auteur<span class="icon">{{ sortIcon('authorName') }}</span></button></th>
+                <th>Extrait de l’avis</th>
+                <th title="Langue estimée dans le navigateur (le serveur ne la stocke pas)">Langue</th>
+                <th>Sentiment</th>
+                <th class="conf-col" [attr.aria-sort]="ariaSort('score')"><button class="th-sort" type="button" [class.active]="sort() === 'score'" (click)="setSort('score')" title="Estimation du modèle, pas une garantie">Confiance<span class="icon">{{ sortIcon('score') }}</span></button></th>
+                <th [attr.aria-sort]="ariaSort('createdAt')"><button class="th-sort" type="button" [class.active]="sort() === 'createdAt'" (click)="setSort('createdAt')">Date<span class="icon">{{ sortIcon('createdAt') }}</span></button></th>
+                <th class="action-col"><span class="sr-only">Action</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              @if (loading() && !rows().length) {
+                @for (i of skeletonRows; track i) {
+                  <tr><td colspan="9"><span class="skeleton" style="height: 38px"></span></td></tr>
+                }
+              } @else {
+                @for (r of rows(); track r.id) {
+                  <tr class="clickable" [class.dim]="loading()" [class.fresh]="fresh().has(r.id)" [class.selected]="selected().has(r.id) || detail()?.id === r.id" (click)="open(r)">
+                    <td class="check-col" (click)="$event.stopPropagation()"><input class="checkbox" type="checkbox" [checked]="selected().has(r.id)" (change)="toggle(r)" [attr.aria-label]="'Sélectionner l’avis ' + r.id" /></td>
+                    <td class="product-col" data-label="Produit">@if (r.product) { <span class="tag" [title]="r.product">{{ r.product }}</span> } @else { <span class="muted">—</span> }</td>
+                    <td class="author-col" data-label="Auteur">
+                      @if (r.authorName) { <span class="author-name">{{ r.authorName }}</span>@if (r.rating) { <app-stars [value]="r.rating" /> } }
+                      @else { <span class="source"><span class="icon">upload_file</span>Import</span> }
+                    </td>
+                    <td class="text-col" data-label="Avis">
+                      <p class="review-text" dir="auto">{{ r.text }}</p>
+                      @if (r.imageUrls?.length) { <span class="has-photos"><span class="icon">photo_library</span>{{ r.imageUrls!.length }} photo{{ r.imageUrls!.length > 1 ? 's' : '' }}</span> }
+                    </td>
+                    <td data-label="Langue"><span class="lang-tag" [title]="langLabel(r.text) + ' (estimation)'">{{ lang(r.text) }}</span></td>
+                    <td data-label="Sentiment"><app-sentiment-badge [label]="r.label" /></td>
+                    <td class="conf-col" data-label="Confiance"><app-confidence [score]="r.score" [label]="r.label" /></td>
+                    <td class="nowrap muted" data-label="Date"><time [attr.datetime]="r.createdAt" [title]="dateTime(r.createdAt)">{{ relative(r.createdAt) }}</time></td>
+                    <td class="action-col"><button class="btn btn-ghost btn-sm" type="button" (click)="$event.stopPropagation(); open(r)" [attr.aria-label]="'Voir le détail de l’avis ' + r.id">Voir<span class="icon">chevron_right</span></button></td>
+                  </tr>
+                } @empty {
+                  <tr class="empty-row"><td colspan="9">
+                    @if (hasFilters()) {
+                      <app-empty-state icon="filter_alt_off" title="Aucun avis ne correspond" message="Modifiez la recherche ou réinitialisez les filtres.">
+                        <button class="btn btn-secondary" type="button" (click)="clearFilters()">Réinitialiser les filtres</button>
+                      </app-empty-state>
                     } @else {
-                      <h3>Aucun avis analysé</h3><p>Importez un fichier CSV ou analysez un premier avis.</p>
-                      <div class="page-actions"><a class="btn btn-primary" routerLink="/import"><span class="icon">upload</span>Importer des avis</a></div>
+                      <app-empty-state icon="inbox" title="Aucun avis analysé" message="Importez un fichier CSV ou analysez un premier avis.">
+                        <a class="btn btn-primary" routerLink="/import"><span class="icon">upload</span>Importer des avis</a>
+                      </app-empty-state>
                     }
-                  </div>
-                </td></tr>
+                  </td></tr>
+                }
               }
-            }
-          </tbody>
-        </table>
-      </div>
+            </tbody>
+          </table>
+        </div>
 
-      @if (total() > 0) {
-        <footer class="pager">
-          <span class="muted tabular">{{ fmt(from()) }}–{{ fmt(to()) }} sur {{ fmt(total()) }}</span>
-          <div class="pager-controls">
-            <label class="muted" for="page-size">Par page</label>
-            <select id="page-size" class="select select-sm" [value]="size()" (change)="setSize(+$any($event.target).value)">
-              @for (n of [10, 20, 50]; track n) { <option [value]="n">{{ n }}</option> }
-            </select>
-            <button class="btn btn-secondary btn-icon" type="button" aria-label="Page précédente" [disabled]="page() === 0" (click)="goTo(page() - 1)"><span class="icon">chevron_left</span></button>
-            <span class="tabular page-indicator">{{ page() + 1 }} / {{ pages() }}</span>
-            <button class="btn btn-secondary btn-icon" type="button" aria-label="Page suivante" [disabled]="page() + 1 >= pages()" (click)="goTo(page() + 1)"><span class="icon">chevron_right</span></button>
-          </div>
-        </footer>
+        @if (total() > 0) {
+          <footer class="pager">
+            <span class="muted tabular">{{ fmt(from()) }}–{{ fmt(to()) }} sur {{ fmt(total()) }}</span>
+            <div class="pager-controls">
+              <label class="muted" for="page-size">Par page</label>
+              <select id="page-size" class="select select-sm" [value]="size()" (change)="setSize(+$any($event.target).value)">
+                @for (n of sizes; track n) { <option [value]="n">{{ n }}</option> }
+              </select>
+              <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Première page" [disabled]="page() === 0" (click)="goTo(0)"><span class="icon">first_page</span></button>
+              <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Page précédente" [disabled]="page() === 0" (click)="goTo(page() - 1)"><span class="icon">chevron_left</span></button>
+              <span class="tabular page-indicator">Page {{ page() + 1 }} / {{ pages() }}</span>
+              <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Page suivante" [disabled]="page() + 1 >= pages()" (click)="goTo(page() + 1)"><span class="icon">chevron_right</span></button>
+              <button class="btn btn-secondary btn-icon btn-sm" type="button" aria-label="Dernière page" [disabled]="page() + 1 >= pages()" (click)="goTo(pages() - 1)"><span class="icon">last_page</span></button>
+            </div>
+          </footer>
+        }
       }
     </section>
 
-    @if (detail(); as d) {
-      <div class="drawer-backdrop" (click)="detail.set(null)"></div>
-      <aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="review-title" (keydown.escape)="closeOnEscape()">
-        <header class="drawer-header">
-          <div><h2 id="review-title">Détail de l’avis</h2><p class="muted small">#{{ d.id }} · {{ relative(d.createdAt) }}@if (d.updatedAt) { · modifié {{ relative(d.updatedAt) }} }</p></div>
-          <button class="btn btn-ghost btn-icon" type="button" aria-label="Fermer" (click)="detail.set(null)"><span class="icon">close</span></button>
-        </header>
-        <div class="drawer-body detail">
-          <div class="detail-head">
-            <app-sentiment-badge [label]="d.label" size="lg" />
-            <span class="confidence tabular">{{ d.score | percent: '1.0-0' }} de confiance</span>
-          </div>
-          <blockquote dir="auto">{{ d.text }}</blockquote>
-          @if (d.imageUrls?.length) {
-            <div class="gallery">@for (u of d.imageUrls!; track u; let i = $index) { <button class="thumb lg" type="button" (click)="lightbox.open(d.imageUrls!, i)" aria-label="Agrandir la photo"><img [src]="u" alt="" /></button> }</div>
-          }
-          <dl class="meta">
-            <dt>Auteur</dt><dd>{{ d.authorName ?? 'Import / analyse administrateur' }}</dd>
-            <dt>Note</dt><dd>@if (d.rating) { <app-stars [value]="d.rating" size="md" /> } @else { <span class="muted">—</span> }</dd>
-            <dt>Produit</dt><dd>@if (d.product) { <span class="tag">{{ d.product }}</span> } @else { <span class="muted">—</span> }</dd>
-            <dt>Date</dt><dd>{{ fullDate(d.createdAt) }}</dd>
-          </dl>
-        </div>
-        <footer class="drawer-footer">
-          <button class="btn btn-ghost spacer danger-text" type="button" (click)="remove(d)"><span class="icon">delete</span>Supprimer l’avis</button>
-          <button class="btn btn-secondary" type="button" (click)="detail.set(null)">Fermer</button>
-        </footer>
-      </aside>
-    }
+    <app-review-detail-drawer [review]="detailSource()" (closed)="closeDetail()" (deleted)="onDeleted($event)" />
   `,
   styles: [`
-    .toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px 16px; border-bottom: 1px solid var(--border); }
-    .search { width: 260px; }
-    .text-col { min-width: 320px; max-width: 560px; }
-    tr.selected { background: var(--brand-50); }
+    :host { display: block; min-width: 0; }
+    .filter-bar .select { width: auto; }
+    .selection-bar { display: flex; align-items: center; gap: 16px; padding: 10px 16px; color: var(--primary-text); background: var(--primary-50); border-bottom: 1px solid var(--primary-100); font-size: 13.5px; }
+    .reviews-table { table-layout: auto; }
+    .product-col { width: 150px; max-width: 170px; } .product-col .tag { max-width: 150px; }
+    .author-col { width: 140px; white-space: nowrap; }
+    .text-col { min-width: 260px; max-width: 460px; }
+    .conf-col { width: 140px; min-width: 130px; }
+    .action-col { width: 1%; text-align: end; white-space: nowrap; }
+    .action-col .icon { font-size: 18px; }
+    .author-name { display: block; overflow: hidden; max-width: 140px; font-weight: 550; text-overflow: ellipsis; }
+    .source { display: inline-flex; align-items: center; gap: 4px; color: var(--text-3); font-size: 12.5px; } .source .icon { font-size: 16px; }
     .has-photos { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; color: var(--text-3); font-size: 12px; } .has-photos .icon { font-size: 15px; }
-    .small { font-size: 12.5px; }
-    .detail { display: grid; gap: 18px; align-content: start; }
-    .detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-    .confidence { color: var(--text-3); font-size: 13px; }
-    blockquote { margin: 0; padding: 14px 16px; background: var(--surface-2); border-left: 3px solid var(--border-strong); border-radius: 0 10px 10px 0; font-size: 15px; line-height: 1.6; white-space: pre-wrap; unicode-bidi: plaintext; }
-    .gallery { display: flex; gap: 10px; flex-wrap: wrap; } .thumb.lg { width: 112px; height: 112px; border-radius: 12px; }
-    .meta { display: grid; grid-template-columns: 90px 1fr; gap: 12px 16px; margin: 0; font-size: 14px; }
-    .meta dt { color: var(--text-3); } .meta dd { display: flex; align-items: center; margin: 0; }
-    .danger-text { color: var(--neg-text); }
-    .conf-col { width: 150px; }
-    .conf { display: grid; grid-template-columns: 1fr 40px; align-items: center; gap: 10px; font-size: 13px; text-align: right; }
     tr.dim { opacity: .55; }
     tr.fresh { animation: highlight 2.5s ease; }
-    @keyframes highlight { from { background: var(--brand-100); } to { background: transparent; } }
-    .author { white-space: nowrap; } .author-name { display: block; font-weight: 550; font-size: 13.5px; }
-    .source { display: inline-flex; align-items: center; gap: 4px; color: var(--text-4); font-size: 12.5px; } .source .icon { font-size: 16px; }
-    .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-top: 1px solid var(--border); font-size: 13px; }
-    .pager-controls { display: flex; align-items: center; gap: 8px; }
-    .select-sm { width: 76px; height: 34px; }
-    .page-indicator { min-width: 54px; text-align: center; }
-    @media (max-width: 640px) { .search { width: 100%; } .segmented { width: 100%; overflow-x: auto; } }
+    @keyframes highlight { from { background: var(--primary-100); } to { background: transparent; } }
+    .empty-row:hover { background: none !important; }
+    @media (max-width: 720px) {
+      .filter-bar .select, .filter-bar .search { flex: 1 1 100%; max-width: none; width: 100%; }
+      .product-col, .author-col, .text-col, .conf-col { width: auto; max-width: none; min-width: 0; }
+      .text-col { display: block !important; } .text-col::before { display: none; }
+      .action-col { text-align: start; }
+      .selection-bar { flex-wrap: wrap; gap: 8px 16px; }
+    }
   `],
 })
 export class ReviewsPageComponent implements OnInit {
   private readonly api = inject(ReviewApi);
+  private readonly dashboard = inject(DashboardApi);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
   private readonly live = inject(NotificationService);
-  readonly exporting = signal(false);
-  /** Avis arrivés en direct, surlignés brièvement. */
-  readonly fresh = signal(new Set<number>());
 
-  readonly filters = FILTERS;
-  readonly skeletonRows = [1, 2, 3, 4, 5];
+  readonly sentiments = SENTIMENTS;
+  readonly periods = PERIODS;
+  readonly sizes = SIZES;
+  readonly skeletonRows = [1, 2, 3, 4, 5, 6];
+
+  readonly products = signal<string[]>([]);
   readonly product = signal('');
   readonly label = signal<Sentiment | ''>('');
+  readonly q = signal('');
+  readonly days = signal<number | null>(null);
+  readonly sort = signal<ReviewSort>('createdAt');
+  readonly dir = signal<'asc' | 'desc'>('desc');
   readonly page = signal(0);
   readonly size = signal(10);
   readonly rows = signal<Review[]>([]);
   readonly total = signal(0);
   readonly loading = signal(false);
-  readonly expanded = signal(new Set<number>());
+  readonly error = signal(false);
+  readonly exporting = signal(false);
+  /** Sélection conservée d'une page à l'autre (id → avis). */
+  readonly selected = signal(new Map<number, Review>());
+  /** Avis arrivés en direct, surlignés brièvement. */
+  readonly fresh = signal(new Set<number>());
   readonly detail = signal<Review | null>(null);
-  readonly lightbox = inject(LightboxService);
-  private readonly admin = inject(AdminApi);
-  private readonly confirm = inject(ConfirmService);
-  private readonly snack = inject(MatSnackBar);
-  readonly fullDate = (iso?: string) => (iso ? new Date(iso).toLocaleString('fr-FR', { dateStyle: 'long', timeStyle: 'short' }) : '—');
+  /** Avis ouvert depuis une notification : seul l'identifiant est connu. */
+  readonly detailId = signal<number | null>(null);
+  readonly detailSource = computed<Review | number | null>(() => this.detail() ?? this.detailId());
   readonly search$ = new Subject<string>();
 
+  readonly hasFilters = computed(() => !!(this.label() || this.product() || this.q() || this.days()));
   readonly pages = computed(() => Math.max(1, Math.ceil(this.total() / this.size())));
   readonly from = computed(() => (this.total() ? this.page() * this.size() + 1 : 0));
   readonly to = computed(() => Math.min(this.total(), (this.page() + 1) * this.size()));
+  readonly pageSelected = computed(() => this.rows().length > 0 && this.rows().every((r) => this.selected().has(r.id)));
+  readonly pagePartlySelected = computed(() => !this.pageSelected() && this.rows().some((r) => this.selected().has(r.id)));
+  readonly sortLabel = computed(() => ({ createdAt: 'date', score: 'confiance', product: 'produit', authorName: 'auteur' })[this.sort()] + (this.dir() === 'asc' ? ' croissante' : ' décroissante'));
+
   readonly fmt = formatNumber;
   readonly relative = (iso?: string) => formatRelative(iso);
-  readonly tone = (l: Sentiment) => SENTIMENT_CLASS[l];
+  readonly dateTime = formatDateTime;
+  readonly lang = (text: string) => detectLanguage(text);
+  readonly langLabel = (text: string) => LANG_LABEL[detectLanguage(text)];
 
   ngOnInit() {
-    const q = this.route.snapshot.queryParamMap;
-    const l = q.get('label');
+    const qp = this.route.snapshot.queryParamMap;
+    const l = qp.get('label');
     if (l === 'POSITIVE' || l === 'NEUTRAL' || l === 'NEGATIVE') this.label.set(l);
-    this.product.set(q.get('product') ?? '');
+    this.product.set(qp.get('product') ?? '');
+    this.q.set(qp.get('q') ?? '');
+    const d = Number(qp.get('days'));
+    if (d > 0) this.days.set(d);
+    const s = qp.get('sort') as ReviewSort | null;
+    if (s && ['createdAt', 'score', 'product', 'authorName'].includes(s)) this.sort.set(s);
+    if (qp.get('dir') === 'asc') this.dir.set('asc');
+    const id = Number(qp.get('review'));
+    if (id > 0) this.detailId.set(id);
+
+    // notification cliquée alors que la page est déjà ouverte
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((m) => {
+      const rid = Number(m.get('review'));
+      if (rid > 0 && rid !== this.detailId() && rid !== this.detail()?.id) { this.detail.set(null); this.detailId.set(rid); }
+    });
+
+    this.dashboard.products().subscribe({ next: (p) => this.products.set(p), error: () => {} });
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
-      .subscribe((value) => { this.product.set(value.trim()); this.reload(); });
+      .subscribe((value) => { this.q.set(value.trim()); this.reload(); });
     this.fetch();
+
     // nouvel avis client : la première page se met à jour toute seule
     this.live.reviews$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
-      if (e.type === 'review.deleted' && this.detail()?.id === e.id) this.detail.set(null);
       if (e.type !== 'review.deleted') this.fresh.update((set) => new Set(set).add(e.id));
       if (this.page() === 0 || e.type !== 'review.created') this.fetch();
     });
   }
 
-  exportUrl() { return this.api.exportUrl(this.product()); }
+  setLabel(value: Sentiment | '') { this.label.set(value); this.reload(); }
+  setProduct(value: string) { this.product.set(value); this.reload(); }
+  setDays(value: string) { this.days.set(value ? Number(value) : null); this.reload(); }
+  setSize(n: number) { this.size.set(n); this.reload(); }
+  goTo(p: number) { this.page.set(p); this.fetch(); }
 
+  setSort(column: ReviewSort) {
+    if (this.sort() === column) this.dir.set(this.dir() === 'asc' ? 'desc' : 'asc');
+    else { this.sort.set(column); this.dir.set(column === 'product' || column === 'authorName' ? 'asc' : 'desc'); }
+    this.reload();
+  }
+
+  sortIcon(column: ReviewSort) {
+    return this.sort() !== column ? 'unfold_more' : this.dir() === 'asc' ? 'arrow_upward' : 'arrow_downward';
+  }
+
+  ariaSort(column: ReviewSort) {
+    return this.sort() !== column ? null : this.dir() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  clearFilters() {
+    this.product.set('');
+    this.label.set('');
+    this.q.set('');
+    this.days.set(null);
+    this.reload();
+  }
+
+  toggle(r: Review) {
+    this.selected.update((m) => { const next = new Map(m); next.has(r.id) ? next.delete(r.id) : next.set(r.id, r); return next; });
+  }
+
+  clearSelection() { this.selected.set(new Map()); }
+
+  togglePage() {
+    const all = this.pageSelected();
+    this.selected.update((m) => {
+      const next = new Map(m);
+      this.rows().forEach((r) => (all ? next.delete(r.id) : next.set(r.id, r)));
+      return next;
+    });
+  }
+
+  open(r: Review) {
+    this.detailId.set(null);
+    this.detail.set(r);
+  }
+
+  closeDetail() {
+    this.detail.set(null);
+    if (this.detailId()) { this.detailId.set(null); this.syncUrl(); }
+  }
+
+  onDeleted(id: number) {
+    this.selected.update((m) => { const next = new Map(m); next.delete(id); return next; });
+    this.fetch();
+  }
+
+  /** Export CSV par le serveur (tous les avis, filtre produit). */
   exportCsv() {
     this.exporting.set(true);
     this.api.downloadCsv(this.product()).subscribe({
@@ -231,48 +345,43 @@ export class ReviewsPageComponent implements OnInit {
     });
   }
 
-  setLabel(value: Sentiment | '') { this.label.set(value); this.reload(); }
-  setSize(n: number) { this.size.set(n); this.reload(); }
-  goTo(p: number) { this.page.set(p); this.fetch(); }
-  clearFilters() { this.product.set(''); this.label.set(''); this.reload(); }
-
-  open(r: Review) { this.detail.set(r); }
-
-  /** Échap ferme seulement la couche du dessus : la photo agrandie d'abord, puis le panneau. */
-  closeOnEscape() {
-    if (!this.lightbox.images().length) this.detail.set(null);
-  }
-
-  async remove(r: Review) {
-    const ok = await this.confirm.ask({
-      title: 'Supprimer cet avis ?',
-      message: r.authorName ? `L’avis de ${r.authorName} sera définitivement supprimé, ainsi que ses photos.` : 'Cet avis sera définitivement supprimé.',
-      confirmLabel: 'Supprimer l’avis',
-    });
-    if (!ok) return;
-    this.admin.deleteReview(r.id).subscribe(() => {
-      this.detail.set(null);
-      this.snack.open('Avis supprimé', 'OK', { duration: 3000 });
-      this.fetch();
-    });
-  }
-
-  toggle(id: number) {
-    this.expanded.update((set) => { const next = new Set(set); next.has(id) ? next.delete(id) : next.add(id); return next; });
+  /** Export des avis cochés, généré dans le navigateur. */
+  exportSelection() {
+    const rows = [...this.selected().values()].map((r) => [
+      r.id, r.createdAt ?? '', r.product ?? '', r.authorName ?? 'Import', r.rating ?? '',
+      SENTIMENT_LABEL[r.label], r.score.toFixed(3), detectLanguage(r.text), r.text,
+    ]);
+    const csv = toCsv(['id', 'date', 'produit', 'auteur', 'note', 'sentiment', 'confiance', 'langue_estimee', 'texte'], rows);
+    downloadText(csv, `avis-selection-${new Date().toISOString().slice(0, 10)}.csv`);
   }
 
   reload() {
     this.page.set(0);
-    // filtres reflétés dans l'URL : partageables et conservés au retour arrière
-    this.router.navigate([], { queryParams: { label: this.label() || null, product: this.product() || null }, replaceUrl: true });
+    this.syncUrl();
     this.fetch();
   }
 
-  private fetch() {
+  fetch() {
     this.loading.set(true);
-    this.api.list(this.product(), this.label(), this.page(), this.size()).subscribe({
+    this.error.set(false);
+    this.api.search({
+      product: this.product(), label: this.label(), q: this.q(), days: this.days(),
+      sort: this.sort(), dir: this.dir(), page: this.page(), size: this.size(),
+    }).subscribe({
       next: (page) => { this.rows.set(page.content); this.total.set(page.totalElements); this.loading.set(false); },
-      error: () => { this.rows.set([]); this.total.set(0); this.loading.set(false); },
+      error: () => { this.rows.set([]); this.total.set(0); this.loading.set(false); this.error.set(true); },
+    });
+  }
+
+  /** Filtres reflétés dans l'URL : partageables et conservés au retour arrière. */
+  private syncUrl() {
+    this.router.navigate([], {
+      queryParams: {
+        label: this.label() || null, product: this.product() || null, q: this.q() || null, days: this.days() || null,
+        sort: this.sort() === 'createdAt' ? null : this.sort(), dir: this.dir() === 'desc' ? null : this.dir(),
+        review: this.detailId() || null,
+      },
+      replaceUrl: true,
     });
   }
 }
